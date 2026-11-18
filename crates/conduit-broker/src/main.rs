@@ -18,7 +18,7 @@ async fn main() {
                 Scope::new("mail.compose", conduit_protocol::verb::READ),
                 Scope::new("mail.compose", conduit_protocol::verb::WRITE),
             ],
-            schemes: vec!["x25519-chacha20poly1305/v1".to_string()],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
         })
         .await;
     registry
@@ -29,7 +29,7 @@ async fn main() {
                 Scope::new("mail.compose", conduit_protocol::verb::READ),
                 Scope::new("mail.compose", conduit_protocol::verb::WRITE),
             ],
-            schemes: vec!["x25519-chacha20poly1305/v1".to_string()],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
         })
         .await;
     registry
@@ -39,6 +39,7 @@ async fn main() {
     let state = AppState {
         registry,
         tunnels: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),
+        devices: conduit_broker::Devices::new(),
         extension_secret: "bootstrap-secret".to_string(),
     };
 

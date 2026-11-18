@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.browser.tab/v1",
+  "title": "The tab in front of the user",
+  "description": "The payload of the browser tab surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["active"],
+  "properties": {
+    "url": {
+      "type": ["string", "null"],
+      "description": "The address the browser shows for the tab."
+    },
+    "title": {
+      "type": ["string", "null"],
+      "description": "The title of the tab."
+    },
+    "window": {
+      "type": ["integer", "null"],
+      "description": "The window the tab is in."
+    },
+    "active": {
+      "type": "boolean",
+      "description": "True for the tab the user is looking at."
+    }
+  }
+}

@@ -41,6 +41,8 @@ the extension.  The full argument is in [`docs/architecture.md`](docs/architectu
 | `crates/conduit-broker` | the relay: the registry, the grants, the scope check, the ring |
 | `crates/conduit-client` | the far end: a typed client over a `conduit://` address |
 | `crates/conduit-native-host` | the Safari near end: a native host that holds the socket |
+| `clients/shared/sealing.js` | the sealing, in the browser: the same scheme as the Rust |
+| `clients/shared/surface-browser.js` | the first surface: the tab in front of the user |
 | `clients/chromium-mv3`, `clients/safari-mv3` | the extension clients |
 
 ## The three adjectives
@@ -62,8 +64,10 @@ is sealed between the two ends, and the broker never opens it.
 ## Running it
 
 ```sh
-cargo test --workspace          # the protocol, the broker, the client
-cargo run -p conduit-broker     # ws://127.0.0.1:8787/v1/tunnel
+cargo test --workspace              # the protocol, the broker, the client
+node --test clients/shared/*.test.js # the surfaces, in node
+node scripts/browser-test.mjs       # the sealing, in a real browser
+cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
 ```
 
 The broker's bootstrap carries one surface, `dev.conduit.mail.compose/v1`,
@@ -72,19 +76,29 @@ with one grant and one token.
 ## The state of it, honestly
 
 **Built and tested:** the protocol and its schemas, the broker's registry,
-grants, scope enforcement and replay ring, the client library, the native
-host, and the two extension clients.  The broker and the client library
-are tested against each other over real sockets.
+grants, scope enforcement and replay ring, the device flow, the client
+library, the native host, the two extension clients, and the first
+surface — the browser tab.  The broker and the client library are tested
+against each other over real sockets, with the payload sealed end to end.
 
-**Not built:** the surfaces.  There is no Mail adapter, no browser-tab
-adapter, and no desktop-app adapter yet — the pieces that know how to read
-a message or a tab inside an app.  They are the part that has to be
-written per app family, and they are the reason the research came first.
+**The sealing works.**  The scheme is `p256-aes256gcm/v1`: ECDH over
+P-256, HKDF-SHA256 into two directional keys, and AES-256-GCM under a
+nonce that carries the sequence number.  The browser and the Rust are
+checked against the same vector, and the browser half runs in a real
+Chromium, because Node's WebCrypto cannot import the key the vector
+needs.  The ciphertext is the same byte for byte on both sides.
 
-**Specified but not implemented:** the sealing.  The protocol names the
-scheme (`x25519-chacha20poly1305/v1`) and the broker carries the payload
-as an opaque string it never opens — but nothing signs or encrypts it
-yet.  The key agreement between the two ends is the next piece of work.
+**Not built:** the other surfaces.  There is a browser tab, and no Mail
+adapter and no desktop-app adapter yet — the pieces that know how to read
+a message inside an app.  They are the part that has to be written per
+app family, and they are the reason the research came first.
+
+**Not verified in a browser:** the extension as a whole.  The logic of
+the surfaces is tested against a mock of the browser's API, and the
+sealing is tested in a real browser, but no one has loaded the extension
+into Chrome and watched a tunnel open.  That is the next thing to do, and
+until it is done the claim is that the parts work, not that the
+extension does.
 
 **Not decided:** whether the broker may ever see a payload (today: no),
 whether a grant may be delegated (today: no), and how a surface's schema

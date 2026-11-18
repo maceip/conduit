@@ -1,10 +1,10 @@
 /*
  * The conduit background: the near end of a tunnel.
  *
- * This file is the same on both browsers.  Chromium runs it in a service
- * worker; Safari runs it in a background page and hands the socket to a
- * native host, because Safari unloads idle background contexts and its
- * WebSocket to 127.0.0.1 is broken.
+ * This file is the same on both browsers.  Chromium runs it in a
+ * service worker; Safari runs it in a background page and hands the
+ * socket to a native host, because Safari unloads idle background
+ * contexts and its WebSocket to 127.0.0.1 is broken.
  *
  * The rules it follows come from the platforms, not from taste:
  *
@@ -16,19 +16,32 @@
  *     frames it missed.
  *   - The backoff is exponential with jitter, so a broker that comes
  *     back is not met by a stampede.
+ *   - The payload is sealed between the two ends.  The broker carries
+ *     it and never opens it.
+ *
+ * Every browser-only call is guarded: Safari throws on a Chromium-only
+ * call at the top level of a background script, and then discards the
+ * background context without a word.
  */
+
+import { agree, generateKeyPair, open as openPayload, seal, toBase64Url } from "./sealing.js";
+import { CHANNEL, SCHEMA, SCOPE, readTab } from "./surface-browser.js";
 
 const CONFIG = {
   // The broker.  A hosted broker is wss://; a local one is ws://.
   broker: "wss://broker.example/v1/tunnel",
 
   // The surface this end offers, and the channel it publishes on.
-  surface: "dev.conduit.mail.compose/v1",
-  channel: "compose",
+  surface: "dev.conduit.browser.tabs/v1",
+  channel: CHANNEL,
 
-  // The secret this end presents.  In a shipped extension this comes
-  // from the device-code flow, not from here.
+  // The secret this end presents.  It comes from the device flow: the
+  // user approves the extension in the broker's page, and only then
+  // does the extension get one.
   secret: "",
+
+  // The instance of this end, for the grant.
+  instance: "extension",
 
   // The ping, in milliseconds.  The worker's idle timer is 30 seconds.
   pingEveryMs: 20000,
@@ -45,18 +58,33 @@ const state = {
   pingTimer: null,
   reconnectTimer: null,
   running: false,
+  keys: null,
+  prefix: null,
+  peer: null,
+  tunnel: null,
+  pendingCode: null,
+  approvalTimer: null,
 };
+
+/* The browser's API, whichever it is. */
+const browserApi = (function () {
+  if (typeof browser !== "undefined" && browser.runtime) {
+    return browser;
+  }
+  if (typeof chrome !== "undefined" && chrome.runtime) {
+    return chrome;
+  }
+  return null;
+})();
 
 /* The storage of the browser: Chromium and Safari both have it, under
  * two names. */
 const store = (function () {
-  if (typeof browser !== "undefined" && browser.storage) {
-    return browser.storage.session || browser.storage.local;
+  const api = browserApi;
+  if (!api || !api.storage) {
+    return null;
   }
-  if (typeof chrome !== "undefined" && chrome.storage) {
-    return chrome.storage.session || chrome.storage.local;
-  }
-  return null;
+  return api.storage.session || api.storage.local;
 })();
 
 /* Read the last sequence number we saw, so that a reconnect can ask for
@@ -80,12 +108,13 @@ async function saveSequence(sequence) {
 
 /* The Safari native host, when there is one. */
 const nativeHost = (function () {
-  if (typeof browser !== "undefined" && browser.runtime && browser.runtime.connectNative) {
+  const api = browserApi;
+  if (api && api.runtime && api.runtime.connectNative) {
     return {
       available: true,
       send(message) {
         return new Promise((resolve, reject) => {
-          const port = browser.runtime.connectNative("dev.conduit.native");
+          const port = api.runtime.connectNative("dev.conduit.native");
           port.onMessage.addListener((reply) => {
             port.disconnect();
             resolve(reply);
@@ -99,6 +128,15 @@ const nativeHost = (function () {
   return null;
 })();
 
+/* The next sequence number of this end.
+ *
+ * The broker keeps the number of the end that sent the frame, because
+ * that number is part of the nonce the payload is sealed under. */
+function nextSequence() {
+  state.sequence += 1;
+  return state.sequence;
+}
+
 /* Send one frame. */
 function send(frame) {
   if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
@@ -108,39 +146,80 @@ function send(frame) {
   return true;
 }
 
-/* The hello, which says who we are and where we got to. */
+/* The hello, which says who we are and where we got to.
+ *
+ * The payload carries the public key of this end and the prefix of its
+ * nonces: the other end needs both to open what this end seals. */
 function hello() {
   return {
     t: "hello",
     s: "dev.conduit.hello/v1",
     c: CONFIG.channel,
-    seq: state.sequence,
-    payload: JSON.stringify({
+    seq: nextSequence(),
+    p: JSON.stringify({
       role: "extension",
       surface: CONFIG.surface,
       resume: state.sequence,
-      scopes: [],
-      schemes: ["x25519-chacha20poly1305/v1"],
+      crypto: {
+        scheme: "p256-aes256gcm/v1",
+        public: toBase64Url(state.keys.publicBytes),
+        prefix: toBase64Url(state.prefix),
+      },
     }),
   };
 }
 
-/* Publish an event on the channel. */
-function publish(schema, payload) {
+/* Publish an event on the channel, sealed under the key of the
+ * tunnel. */
+async function publish(schema, payload) {
+  if (!state.tunnel) {
+    return false;
+  }
+  const seq = nextSequence();
+  const sealed = await seal(state.tunnel.toExtension, state.peer.prefix, seq, JSON.stringify(payload));
   return send({
     t: "publish",
     s: schema,
     c: CONFIG.channel,
-    seq: ++state.sequence,
-    p: btoa(unescape(encodeURIComponent(JSON.stringify(payload)))),
+    seq,
+    p: toBase64Url(sealed),
   });
+}
+
+/* Take the hello of the other end and agree the keys of the tunnel. */
+async function meet(payload) {
+  const hello = JSON.parse(payload);
+  const crypto = hello.crypto || {};
+  if (crypto.scheme !== "p256-aes256gcm/v1") {
+    return false;
+  }
+  const peerPublic = fromBase64Url(crypto.public);
+  const peerPrefix = fromBase64Url(crypto.prefix);
+  const shared = await agree(state.keys.privateKey, peerPublic);
+  state.peer = { prefix: peerPrefix, public: peerPublic };
+  state.tunnel = {
+    toExtension: shared.toExtension,
+    toClient: shared.toClient,
+  };
+  return true;
+}
+
+/* Base64url without padding, back to bytes. */
+function fromBase64Url(text) {
+  const padded = text.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
 }
 
 /* Keep the connection alive, and tell the broker we are here. */
 function startPinging() {
   stopPinging();
   state.pingTimer = setInterval(() => {
-    send({ t: "ping", s: "dev.conduit.ping/v1", c: CONFIG.channel, seq: ++state.sequence });
+    send({ t: "ping", s: "dev.conduit.ping/v1", c: CONFIG.channel, seq: nextSequence() });
   }, CONFIG.pingEveryMs);
 }
 
@@ -162,7 +241,17 @@ function connect() {
     /* Safari: the native host holds the socket, because the background
      * context will be unloaded and a loopback socket will not work. */
     nativeHost
-      .send({ action: "connect", url: CONFIG.broker, surface: CONFIG.surface, secret: CONFIG.secret })
+      .send({
+        action: "connect",
+        url: CONFIG.broker,
+        surface: CONFIG.surface,
+        secret: CONFIG.secret,
+        crypto: {
+          scheme: "p256-aes256gcm/v1",
+          public: toBase64Url(state.keys.publicBytes),
+          prefix: toBase64Url(state.prefix),
+        },
+      })
       .then((reply) => {
         if (reply && reply.ok) {
           state.backoff = CONFIG.backoffMinMs;
@@ -174,7 +263,9 @@ function connect() {
     return;
   }
 
-  const socket = new WebSocket(CONFIG.broker + "?role=extension&surface=" + encodeURIComponent(CONFIG.surface));
+  const socket = new WebSocket(
+    CONFIG.broker + "?role=extension&surface=" + encodeURIComponent(CONFIG.surface),
+  );
   state.socket = socket;
 
   socket.onopen = () => {
@@ -183,7 +274,7 @@ function connect() {
     startPinging();
   };
 
-  socket.onmessage = (event) => {
+  socket.onmessage = async (event) => {
     let frame;
     try {
       frame = JSON.parse(event.data);
@@ -193,8 +284,21 @@ function connect() {
     if (typeof frame.seq === "number" && frame.seq > state.sequence) {
       saveSequence(frame.seq);
     }
+    if (frame.t === "hello" && frame.p) {
+      await meet(frame.p);
+      return;
+    }
     if (frame.t === "ping") {
-      send({ t: "pong", s: "dev.conduit.pong/v1", c: CONFIG.channel, seq: ++state.sequence });
+      send({ t: "pong", s: "dev.conduit.pong/v1", c: CONFIG.channel, seq: nextSequence() });
+      return;
+    }
+    if (frame.t === "publish" && frame.p && state.tunnel) {
+      const opened = await openPayload(state.tunnel.toClient, state.peer.prefix, frame.seq, fromBase64Url(frame.p));
+      if (!opened) {
+        return;
+      }
+      const payload = JSON.parse(new TextDecoder().decode(opened));
+      await onEvent(frame.s, payload);
     }
   };
 
@@ -237,22 +341,39 @@ function stop() {
   }
 }
 
+/* What comes in from the other end. */
+async function onEvent(schema, payload) {
+  if (schema === SCHEMA) {
+    await publish(SCHEMA, payload);
+  }
+}
+
 /* The message that arrives from the page or from the native side. */
 async function onMessage(message) {
   if (!message || !message.action) {
     return;
   }
   switch (message.action) {
-    case "publish":
-      publish(message.schema || "dev.conduit.generic/v1", message.payload);
+    case "publish": {
+      /* The surface: the tab in front of the user. */
+      const tab = await readTab();
+      if (tab) {
+        await publish(SCHEMA, tab);
+      }
       break;
+    }
     case "status":
-      return { ok: true, sequence: state.sequence, connected: !!state.socket };
+      return {
+        ok: true,
+        sequence: state.sequence,
+        connected: !!state.socket,
+        agreed: !!state.tunnel,
+      };
     case "toggle":
       if (state.socket) {
         stop();
       } else {
-        start();
+        await start();
       }
       break;
     case "stop":
@@ -264,21 +385,113 @@ async function onMessage(message) {
   return { ok: true };
 }
 
+/* The secret, if the user has approved one. */
+async function loadSecret() {
+  if (!store) {
+    return "";
+  }
+  const held = await store.get("conduit.secret");
+  return held && held["conduit.secret"] ? held["conduit.secret"] : "";
+}
+
+/* Keep the secret.
+ *
+ * The secret is the user's decision: it comes from the device flow,
+ * and it is not the extension's to keep if the user takes it away. */
+async function saveSecret(secret) {
+  if (!store) {
+    return;
+  }
+  await store.set({ "conduit.secret": secret });
+}
+
+/* Ask the broker for a code, and open the page where the user
+ * approves it.
+ *
+ * The broker does not hand out a secret because an extension asked:
+ * the user says yes first, in the broker's own page. */
+async function askForApproval() {
+  const api = browserApi;
+  if (!api || !api.runtime || !api.runtime.sendMessage) {
+    return;
+  }
+  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/code", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      surface: CONFIG.surface,
+      scopes: [SCOPE],
+    }),
+  });
+  if (!answer.ok) {
+    return;
+  }
+  const code = await answer.json();
+  const page = CONFIG.broker.replace(/^ws/, "http") + code.url;
+  if (api.tabs && api.tabs.create) {
+    await api.tabs.create({ url: page });
+  }
+  state.pendingCode = code.code;
+}
+
+/* Ask the broker whether the user has approved the code. */
+async function pollForTheSecret() {
+  if (!state.pendingCode) {
+    return false;
+  }
+  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/secret", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: state.pendingCode, instance: CONFIG.instance }),
+  });
+  if (!answer.ok) {
+    return false;
+  }
+  const secret = await answer.text();
+  await saveSecret(secret);
+  state.pendingCode = null;
+  CONFIG.secret = secret;
+  return true;
+}
+
 /* The start of the tunnel. */
 async function start() {
   state.sequence = await loadSequence();
-  connect();
+  if (!state.keys) {
+    const pair = await generateKeyPair();
+    state.keys = pair;
+    state.prefix = new Uint8Array(4);
+    crypto.getRandomValues(state.prefix);
+  }
+  const secret = await loadSecret();
+  if (secret) {
+    CONFIG.secret = secret;
+    connect();
+    return;
+  }
+  // There is no secret yet: ask for one, and wait for the user.
+  await askForApproval();
+  if (state.approvalTimer !== null) {
+    clearInterval(state.approvalTimer);
+  }
+  state.approvalTimer = setInterval(async () => {
+    if (await pollForTheSecret()) {
+      clearInterval(state.approvalTimer);
+      state.approvalTimer = null;
+      connect();
+    }
+  }, 5000);
 }
 
 /* Wire the messages, in whichever browser this is. */
-if (typeof browser !== "undefined" && browser.runtime && browser.runtime.onMessage) {
-  browser.runtime.onMessage.addListener(onMessage);
-  browser.runtime.onInstalled.addListener(start);
-  browser.runtime.onStartup.addListener(start);
-} else if (typeof chrome !== "undefined" && chrome.runtime) {
-  chrome.runtime.onMessage.addListener(onMessage);
-  chrome.runtime.onInstalled.addListener(start);
-  chrome.runtime.onStartup.addListener(start);
+if (browserApi && browserApi.runtime && browserApi.runtime.onMessage) {
+  browserApi.runtime.onMessage.addListener(onMessage);
+  if (browserApi.runtime.onInstalled) {
+    browserApi.runtime.onInstalled.addListener(start);
+  }
+  if (browserApi.runtime.onStartup) {
+    browserApi.runtime.onStartup.addListener(start);
+  }
 }
 
 /* In a service worker, the worker may be started by a message rather

@@ -3,11 +3,13 @@
   "name": "Conduit",
   "version": "0.1.0",
   "description": "A typed, scoped tunnel from this browser to a conduit client.",
-  "minimum_chrome_version": "116",
+  "minimum_chrome_version": "121",
   "background": {
-    "service_worker": "background.js"
+    "scripts": ["background.js"],
+    "service_worker": "background.js",
+    "type": "module"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "tabs"],
   "host_permissions": ["wss://broker.example/*"],
   "action": {
     "default_title": "Conduit",

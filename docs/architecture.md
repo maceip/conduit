@@ -146,7 +146,7 @@ that MCP's extension id does.
 names:
 
 ```
-"crypto": "x25519-chacha20poly1305/v1"
+"crypto": "p256-aes256gcm/v1"
 ```
 
 The two ends agree a key at subscription time; the broker sees only the

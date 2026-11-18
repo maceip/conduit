@@ -40,6 +40,9 @@ jobs:
             echo "ok $file"
           done
 
+      - name: The tests of the extension
+        run: node --test clients/shared/*.test.js
+
       - name: The schemas are JSON
         run: |
           python3 - <<'PY'
@@ -55,6 +58,25 @@ jobs:
               assert "background" in manifest, path
               print("ok", path)
           PY
+
+  browser:
+    name: the browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install the browser
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: The sealing agrees with the Rust, in a real browser
+        run: node scripts/browser-test.mjs
 
   coverage:
     name: coverage

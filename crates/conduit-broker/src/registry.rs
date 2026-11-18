@@ -22,6 +22,12 @@ pub trait Registry: Send + Sync + 'static {
 
     /// The surfaces the client with that token may subscribe to.
     async fn surfaces_for_token(&self, token: &str) -> Vec<SchemaId>;
+
+    /// Put a grant in the registry.
+    ///
+    /// The grant is the user's decision about a surface, and it is
+    /// written down when the user has made it.
+    async fn put_grant(&self, grant: Grant);
 }
 
 /// The registry of the bootstrap: a map in memory.
@@ -93,5 +99,12 @@ impl Registry for InMemoryRegistry {
             .get(token)
             .cloned()
             .unwrap_or_default()
+    }
+
+    async fn put_grant(&self, grant: Grant) {
+        self.grants
+            .write()
+            .await
+            .insert((grant.surface.clone(), grant.instance.clone()), grant);
     }
 }

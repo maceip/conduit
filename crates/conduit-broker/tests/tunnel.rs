@@ -27,7 +27,7 @@ async fn registry() -> Arc<InMemoryRegistry> {
                 Scope::new("mail.compose", conduit_protocol::verb::READ),
                 Scope::new("mail.compose", conduit_protocol::verb::WRITE),
             ],
-            schemes: vec!["x25519-chacha20poly1305/v1".to_string()],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
         })
         .await;
     registry
@@ -35,7 +35,7 @@ async fn registry() -> Arc<InMemoryRegistry> {
             surface: surface(),
             instance: "bootstrap".to_string(),
             scopes: vec![Scope::new("mail.compose", conduit_protocol::verb::READ)],
-            schemes: vec!["x25519-chacha20poly1305/v1".to_string()],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
         })
         .await;
     registry.put_token("token", vec![surface()]).await;
@@ -48,6 +48,7 @@ async fn broker() -> String {
     let state = AppState {
         registry,
         tunnels: Arc::new(tokio::sync::Mutex::new(Default::default())),
+        devices: conduit_broker::Devices::new(),
         extension_secret: "secret".to_string(),
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");

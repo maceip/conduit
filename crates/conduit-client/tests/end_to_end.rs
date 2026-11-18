@@ -28,6 +28,7 @@ async fn broker() -> String {
     let state = AppState {
         registry,
         tunnels: Arc::new(tokio::sync::Mutex::new(Default::default())),
+        devices: conduit_broker::Devices::new(),
         extension_secret: "secret".to_string(),
     };
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");

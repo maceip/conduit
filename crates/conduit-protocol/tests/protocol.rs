@@ -137,7 +137,7 @@ fn a_grant_covers_only_what_it_was_given() {
         surface: SchemaId::new("dev.conduit.mail.compose", 1),
         instance: "4f9c".to_string(),
         scopes: vec![Scope::new("mail.compose", verb::READ)],
-        schemes: vec!["x25519-chacha20poly1305/v1".to_string()],
+        schemes: vec!["p256-aes256gcm/v1".to_string()],
     };
     assert!(grant.covers(&Scope::new("mail.compose", verb::READ)));
     assert!(!grant.covers(&Scope::new("mail.compose", verb::WRITE)));

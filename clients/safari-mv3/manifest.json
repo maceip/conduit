@@ -4,9 +4,10 @@
   "version": "0.1.0",
   "description": "A typed, scoped tunnel from this browser to a conduit client.",
   "background": {
-    "scripts": ["background.js"]
+    "scripts": ["background.js"],
+    "type": "module"
   },
-  "permissions": ["storage", "nativeMessaging"],
+  "permissions": ["storage", "tabs", "nativeMessaging"],
   "host_permissions": ["wss://broker.example/*"],
   "action": {
     "default_title": "Conduit",

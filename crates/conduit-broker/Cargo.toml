@@ -8,7 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+base64-url.workspace = true
 conduit-protocol = { path = "../conduit-protocol" }
+rand_core.workspace = true
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws"] }
 serde.workspace = true
@@ -17,4 +19,5 @@ tokio.workspace = true
 
 [dev-dependencies]
 futures-util = "0.3.34"
+reqwest = { version = "0.12", features = ["json"] }
 tokio-tungstenite = "0.24"

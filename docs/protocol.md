@@ -77,6 +77,32 @@ own consent surface.
 
 ## The grant
 
+### How an extension gets one
+
+The broker does not hand out a grant because an extension asked.  The
+extension asks for a **code**, shows it to the user, the user approves
+it in the broker's own page, and only then does the extension get a
+**secret**.
+
+```
+POST /v1/device/code     {surface, scopes}   ->  {code, url, expires_in}
+POST /v1/device/approve  {code}              ->  200, or 404 if it is not there
+POST /v1/device/secret   {code, instance}    ->  the secret, or 403
+GET  /v1/device/approve-page?code=…          ->  the page the user sees
+```
+
+The code is 192 bits of randomness and lives ten minutes.  The secret is
+256 bits, and it is what the extension presents on the tunnel; the grant
+that comes with it is the one the user approved — the surface and the
+scopes that were named in the page.
+
+**The approval endpoint has to sit behind the user's session** in
+anything but a bootstrap.  Here the code itself is the only thing that
+stands between an approval and a stranger, which is the same bargain
+the OAuth device flow makes.
+
+### The grant itself
+
 The grant is the user's decision, and it lives with the extension:
 
 ```json
@@ -84,7 +110,7 @@ The grant is the user's decision, and it lives with the extension:
   "surface": "dev.conduit.mail/compose/v1",
   "instance": "4f9c…",
   "scopes": ["mail.compose.read", "mail.compose.write"],
-  "schemes": ["x25519-chacha20poly1305/v1"],
+  "schemes": ["p256-aes256gcm/v1"],
   "expires": null
 }
 ```
@@ -120,18 +146,31 @@ the frame it answers, if any.
 
 ## The sealed payload
 
-**The state of this part: specified, not implemented.**  The broker
-carries the payload as an opaque string it never opens, and the scheme
-below is the contract — but the key agreement and the sealing itself are
-not written yet.
+**This part is implemented.**  The scheme is `p256-aes256gcm/v1`, and the
+broker carries the payload as an opaque string it never opens.
 
-The payload is sealed with the scheme the grant names.  The default:
-
-* **X25519** for the key agreement, at subscription time, between the two
-  ends — the broker is not a party to it.
-* **ChaCha20-Poly1305** for the payload, with a nonce that is the frame's
-  `seq` — so the sequence number is authenticated as well as ordered.
+* **ECDH over P-256** for the key agreement, at the hello, between the
+  two ends — the broker is not a party to it.  The hello carries the
+  public key of each end and the prefix of its nonces.
+* **HKDF-SHA256** over the shared secret, with the string of zeros RFC
+  5869 names as the salt, to make **two directional keys**: one for what
+  the extension sends and one for what the client sends, so a frame
+  cannot be replayed backwards.
+* **AES-256-GCM** for the payload, with a nonce of four random bytes
+  and the frame's `seq`, and the `seq` also as the additional data — so
+  the ordering is authenticated as well as the content.
 * The sealed blob is base64url without padding, in the `p` field.
+
+**Two choices were forced by what the browser can actually do.**  The
+browser's WebCrypto has no ChaCha20-Poly1305, and its X25519 will not
+take a raw private key with the usage a derivation needs.  So the scheme
+is AES-GCM and P-256, and the browser and the Rust are checked against
+the same vector: the same keys, the same nonce, the same payload, and
+therefore the same ciphertext, byte for byte.
+
+**The broker renumbers nothing.**  The `seq` of a frame is the one of
+the end that sent it, because that number is part of the nonce; a frame
+the broker renumbered could not be opened.
 
 A surface that declares `none` is only reachable over a loopback tunnel
 and never through the hosted broker; the broker refuses to carry a `none`

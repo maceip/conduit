@@ -12,7 +12,7 @@
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::Response;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use conduit_protocol::{
     ErrorCode, Failure, Frame, FrameType, Grant, ProtocolError, Replay, SchemaId, Scope,
@@ -22,9 +22,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+mod devices;
 mod registry;
 mod relay;
 
+pub use devices::{Device, Devices};
 pub use registry::{InMemoryRegistry, Registry};
 pub use relay::Tunnel;
 
@@ -35,6 +37,8 @@ pub struct AppState {
     pub registry: Arc<dyn Registry>,
     /// The tunnels that are open, by surface.
     pub tunnels: Arc<Mutex<HashMap<SchemaId, Tunnel>>>,
+    /// The codes the user approves.
+    pub devices: Arc<Devices>,
     /// The secret the extension presents, for the bootstrap.
     pub extension_secret: String,
 }
@@ -50,6 +54,8 @@ pub struct Params {
     pub secret: Option<String>,
     /// The token of the client.
     pub token: Option<String>,
+    /// The instance of the extension, for the grant.
+    pub instance: Option<String>,
 }
 
 /// The broker's HTTP surface.
@@ -57,7 +63,134 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/v1/tunnel", get(tunnel))
         .route("/v1/health", get(health))
+        .route("/v1/device/code", post(ask_for_a_code))
+        .route("/v1/device/approve", post(approve_a_code))
+        .route("/v1/device/secret", post(the_secret))
+        .route("/v1/device/approve-page", get(the_approval_page))
         .with_state(state)
+}
+
+/// The body of a request for a code.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodeRequest {
+    /// The surface the extension wants to offer.
+    pub surface: String,
+    /// The scopes it asks for.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+/// The body of a request for the secret.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SecretRequest {
+    /// The code the extension was given.
+    pub code: String,
+    /// The instance of the extension, for the grant.
+    #[serde(default)]
+    pub instance: String,
+}
+
+/// A code, and what the user does with it.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CodeReply {
+    /// The code itself.
+    pub code: String,
+    /// Where the user approves it.
+    pub url: String,
+    /// How long it lives, in seconds.
+    pub expires_in: u64,
+}
+
+/// Ask for a code.
+async fn ask_for_a_code(
+    State(state): State<AppState>,
+    body: axum::Json<CodeRequest>,
+) -> axum::Json<CodeReply> {
+    let surface = SchemaId::parse(&body.surface)
+        .unwrap_or_else(|| SchemaId::new("dev.conduit.browser.tabs", 1));
+    let scopes = body
+        .scopes
+        .iter()
+        .filter_map(|scope| scope.rsplit_once('.'))
+        .map(|(namespace, verb)| Scope::new(namespace, verb))
+        .collect();
+    let code = state.devices.ask(surface, scopes).await;
+    axum::Json(CodeReply {
+        code: code.clone(),
+        url: format!("/v1/device/approve-page?code={code}"),
+        expires_in: devices::CODE_LIFETIME_SECONDS,
+    })
+}
+
+/// The body of an approval.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApprovalRequest {
+    /// The code the user is approving.
+    pub code: String,
+}
+
+/// The user approves a code.
+async fn approve_a_code(
+    State(state): State<AppState>,
+    body: axum::Json<ApprovalRequest>,
+) -> impl axum::response::IntoResponse {
+    match state.devices.approve(&body.code).await {
+        Some(device) => (
+            axum::http::StatusCode::OK,
+            format!("approved {}", device.surface),
+        ),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            String::from("no such code, or it has expired"),
+        ),
+    }
+}
+
+/// The secret of an approved code.
+async fn the_secret(
+    State(state): State<AppState>,
+    body: axum::Json<SecretRequest>,
+) -> impl axum::response::IntoResponse {
+    match state.devices.secret(&body.code, &body.instance).await {
+        Some((secret, grant)) => {
+            state.registry.put_grant(grant).await;
+            (axum::http::StatusCode::OK, secret)
+        }
+        None => (
+            axum::http::StatusCode::FORBIDDEN,
+            String::from("the code has not been approved, or it has expired"),
+        ),
+    }
+}
+
+/// The page the user approves a code in.
+async fn the_approval_page(
+    State(state): State<AppState>,
+    Query(query): Query<HashMap<String, String>>,
+) -> impl axum::response::IntoResponse {
+    let code = query.get("code").cloned().unwrap_or_default();
+    let device = state.devices.device(&code).await;
+    let body = match device {
+        Some(device) => format!(
+            "<h1>Approve this extension</h1><p><strong>{}</strong> asks for the scopes:</p><ul>{}</ul><form method=\"post\" action=\"/v1/device/approve-page\"><input type=\"hidden\" name=\"code\" value=\"{}\"><button type=\"submit\">Approve</button></form>",
+            device.surface,
+            device
+                .scopes
+                .iter()
+                .map(|scope| format!("<li>{}</li>", scope))
+                .collect::<Vec<_>>()
+                .join(""),
+            code
+        ),
+        None => "<h1>No such code</h1><p>It has expired, or it was never here.</p>".to_string(),
+    };
+    (
+        axum::http::StatusCode::OK,
+        [("content-type", "text/html; charset=utf-8")],
+        format!(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Approve</title></head><body>{body}</body></html>"
+        ),
+    )
 }
 
 /// The health of the broker.
@@ -89,7 +222,11 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
 
     match params.role.as_str() {
         "extension" => {
-            if params.secret.as_deref() != Some(state.extension_secret.as_str()) {
+            // The secret is what the user approved; the bootstrap's
+            // own secret is there for the tests.
+            let secret = params.secret.as_deref().unwrap_or_default();
+            let known = state.devices.surface_of(secret).await;
+            if known.is_none() && secret != state.extension_secret {
                 let _ = socket
                     .send(Message::Text(
                         error_frame(ErrorCode::Unauthorized, "not authorized").into(),
@@ -97,7 +234,22 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                     .await;
                 return;
             }
-            let grant = state.registry.grant_for(&surface, "bootstrap").await;
+            if let Some(surface_of_the_secret) = known {
+                if surface_of_the_secret != surface {
+                    let _ = socket
+                        .send(Message::Text(
+                            error_frame(
+                                ErrorCode::Unauthorized,
+                                "the secret is for another surface",
+                            )
+                            .into(),
+                        ))
+                        .await;
+                    return;
+                }
+            }
+            let instance = params.instance.as_deref().unwrap_or("bootstrap");
+            let grant = state.registry.grant_for(&surface, instance).await;
             let tunnel = Tunnel::new(Arc::clone(&state.registry), grant);
             state
                 .tunnels
