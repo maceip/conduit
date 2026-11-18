@@ -1,5 +1,7 @@
 # Conduit
 
+![Conduit](docs/social-preview.jpg)
+
 **A typed, scoped, schemed tunnel from inside an app to a client.**
 
 Most apps have no seam a third party can use.  Some hide theirs — Apple
