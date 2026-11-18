@@ -120,6 +120,11 @@ the frame it answers, if any.
 
 ## The sealed payload
 
+**The state of this part: specified, not implemented.**  The broker
+carries the payload as an opaque string it never opens, and the scheme
+below is the contract — but the key agreement and the sealing itself are
+not written yet.
+
 The payload is sealed with the scheme the grant names.  The default:
 
 * **X25519** for the key agreement, at subscription time, between the two

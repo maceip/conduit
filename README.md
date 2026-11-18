@@ -81,6 +81,11 @@ adapter, and no desktop-app adapter yet — the pieces that know how to read
 a message or a tab inside an app.  They are the part that has to be
 written per app family, and they are the reason the research came first.
 
+**Specified but not implemented:** the sealing.  The protocol names the
+scheme (`x25519-chacha20poly1305/v1`) and the broker carries the payload
+as an opaque string it never opens — but nothing signs or encrypts it
+yet.  The key agreement between the two ends is the next piece of work.
+
 **Not decided:** whether the broker may ever see a payload (today: no),
 whether a grant may be delegated (today: no), and how a surface's schema
 set is published (today: the extension declares it).
