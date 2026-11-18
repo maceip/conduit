@@ -249,6 +249,7 @@ name = "conduit-protocol"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
+ "async-trait",
  "base64-url",
  "hkdf",
  "p256",
@@ -256,6 +257,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tokio",
 ]
 
 [[package]]

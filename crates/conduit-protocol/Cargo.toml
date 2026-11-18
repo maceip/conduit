@@ -9,6 +9,7 @@ repository.workspace = true
 
 [dependencies]
 aes-gcm.workspace = true
+async-trait = "0.1"
 base64-url.workspace = true
 hkdf.workspace = true
 rand_core.workspace = true
@@ -16,3 +17,6 @@ serde.workspace = true
 serde_json.workspace = true
 p256.workspace = true
 sha2.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
