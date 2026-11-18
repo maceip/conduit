@@ -67,11 +67,15 @@ is sealed between the two ends, and the broker never opens it.
 cargo test --workspace              # the protocol, the broker, the client
 node --test clients/shared/*.test.js # the surfaces, in node
 node scripts/browser-test.mjs       # the sealing, in a real browser
+node scripts/assemble-clients.mjs   # copy the shared near end into each client
+node scripts/extension-e2e.mjs      # the extension and a far end, end to end
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
 ```
 
-The broker's bootstrap carries one surface, `dev.conduit.mail.compose/v1`,
-with one grant and one token.
+The broker's bootstrap carries the browser tabs surface the shipped
+extension offers (`dev.conduit.browser.tabs/v1`) and the mail shape the
+research names (`dev.conduit.mail.compose/v1`), each with a grant and
+one shared token.
 
 ## The state of it, honestly
 
@@ -80,6 +84,17 @@ grants, scope enforcement and replay ring, the device flow, the client
 library, the native host, the two extension clients, and the first
 surface — the browser tab.  The broker and the client library are tested
 against each other over real sockets, with the payload sealed end to end.
+
+**The extension, in a real browser.**  `scripts/extension-e2e.mjs` loads
+the Chromium client into a real Chromium, opens the tunnel to a local
+broker through the extension's own toggle, and shows the Rust far end
+opening a sealed frame carrying the real tab.  Three defects were found
+by that run and are fixed: the extension did not present its secret on
+the connection, it sealed frames under the peer's nonce prefix instead
+of its own, and the shared near end was never assembled into the
+extension directory.  The run covers Chromium; the Safari client and its
+native host are tested at the socket level and have not been loaded into
+Safari.
 
 **The sealing works.**  The scheme is `p256-aes256gcm/v1`: ECDH over
 P-256, HKDF-SHA256 into two directional keys, and AES-256-GCM under a
@@ -93,12 +108,10 @@ adapter and no desktop-app adapter yet — the pieces that know how to read
 a message inside an app.  They are the part that has to be written per
 app family, and they are the reason the research came first.
 
-**Not verified in a browser:** the extension as a whole.  The logic of
-the surfaces is tested against a mock of the browser's API, and the
-sealing is tested in a real browser, but no one has loaded the extension
-into Chrome and watched a tunnel open.  That is the next thing to do, and
-until it is done the claim is that the parts work, not that the
-extension does.
+**Not verified in Safari:** the native-host path.  Chromium's near end
+holds the socket itself and is verified end to end; Safari's near end
+hands the socket to the native host, which is tested over real sockets
+but has not been driven from Safari itself.
 
 **Not decided:** whether the broker may ever see a payload (today: no),
 whether a grant may be delegated (today: no), and how a surface's schema
