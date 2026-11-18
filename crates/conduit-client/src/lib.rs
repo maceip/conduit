@@ -312,14 +312,18 @@ impl Client {
     }
 
     /// The payload of the hello: who we are, and the public key.
+    ///
+    /// The key material is base64url without padding — the encoding
+    /// the protocol names for the sealed blob, and the one the
+    /// extension sends.
     fn hello_payload(&self) -> String {
         serde_json::json!({
             "role": "client",
             "surface": self.surface.to_string(),
             "crypto": {
                 "scheme": sealed::SCHEME,
-                "public": sealed::public_key_hex(&self.keys.public_bytes()),
-                "prefix": sealed::public_key_hex(&self.prefix),
+                "public": sealed::bytes_to_base64url(&self.keys.public_bytes()),
+                "prefix": sealed::bytes_to_base64url(&self.prefix),
             },
         })
         .to_string()
@@ -384,7 +388,7 @@ impl Client {
             .and_then(|prefix| prefix.as_str())
             .ok_or(ClientError::Malformed)?;
 
-        let public = hex_to_bytes(public).ok_or(ClientError::Malformed)?;
+        let public = sealed::bytes_from_base64url(public).ok_or(ClientError::Malformed)?;
         if public.len() != 65 {
             return Err(ClientError::Malformed);
         }
@@ -392,7 +396,7 @@ impl Client {
         point.copy_from_slice(&public);
         let shared = self.keys.agree(&point);
 
-        let prefix = hex_to_bytes(prefix).ok_or(ClientError::Malformed)?;
+        let prefix = sealed::bytes_from_base64url(prefix).ok_or(ClientError::Malformed)?;
         if prefix.len() != 4 {
             return Err(ClientError::Malformed);
         }
@@ -478,18 +482,4 @@ fn percent_encode(value: &str) -> String {
         }
     }
     encoded
-}
-
-/// The bytes of that hex text.
-fn hex_to_bytes(text: &str) -> Option<Vec<u8>> {
-    if text.len() % 2 != 0 {
-        return None;
-    }
-    let mut bytes = Vec::with_capacity(text.len() / 2);
-    for pair in text.as_bytes().chunks(2) {
-        let high = (pair[0] as char).to_digit(16)?;
-        let low = (pair[1] as char).to_digit(16)?;
-        bytes.push((high * 16 + low) as u8);
-    }
-    Some(bytes)
 }

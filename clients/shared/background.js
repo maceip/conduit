@@ -176,7 +176,10 @@ async function publish(schema, payload) {
     return false;
   }
   const seq = nextSequence();
-  const sealed = await seal(state.tunnel.toExtension, state.peer.prefix, seq, JSON.stringify(payload));
+  /* The nonce prefix of a frame is the one of the end that sent it:
+   * the hello carries each end's own prefix, and the far end opens
+   * this frame with this end's prefix. */
+  const sealed = await seal(state.tunnel.toExtension, state.prefix, seq, JSON.stringify(payload));
   return send({
     t: "publish",
     s: schema,
@@ -263,8 +266,17 @@ function connect() {
     return;
   }
 
+  /* The broker refuses an end that does not present its secret, so the
+   * secret and the instance ride on the connection: the secret is the
+   * user's, and the instance names this end of the grant. */
   const socket = new WebSocket(
-    CONFIG.broker + "?role=extension&surface=" + encodeURIComponent(CONFIG.surface),
+    CONFIG.broker +
+      "?role=extension&surface=" +
+      encodeURIComponent(CONFIG.surface) +
+      "&secret=" +
+      encodeURIComponent(CONFIG.secret) +
+      "&instance=" +
+      encodeURIComponent(CONFIG.instance),
   );
   state.socket = socket;
 
@@ -297,8 +309,13 @@ function connect() {
       if (!opened) {
         return;
       }
-      const payload = JSON.parse(new TextDecoder().decode(opened));
-      await onEvent(frame.s, payload);
+      await onEvent(frame.s);
+      return;
+    }
+    if (frame.t === "subscribe" && state.tunnel && frame.c === CONFIG.channel) {
+      /* The far end has subscribed to this channel: publish what the
+       * surface reads right now, so the first frame is not a silence. */
+      await onEvent(SCHEMA);
     }
   };
 
@@ -341,10 +358,18 @@ function stop() {
   }
 }
 
-/* What comes in from the other end. */
-async function onEvent(schema, payload) {
+/* What comes in from the other end.
+ *
+ * A frame that names the tab schema is a request for the tab in front
+ * of the user.  The answer is what the surface reads — the tab itself,
+ * or nothing at all when there is none.  A surface never answers with a
+ * stand-in. */
+async function onEvent(schema) {
   if (schema === SCHEMA) {
-    await publish(SCHEMA, payload);
+    const tab = await readTab();
+    if (tab) {
+      await publish(SCHEMA, tab);
+    }
   }
 }
 
@@ -383,6 +408,19 @@ async function onMessage(message) {
       break;
   }
   return { ok: true };
+}
+
+/* The broker this end talks to, if the user has pointed it at one.
+ *
+ * The default is the one in CONFIG; the user may hold a different one
+ * (a local broker, say), and that is their choice to make and to take
+ * away. */
+async function loadBroker() {
+  if (!store) {
+    return CONFIG.broker;
+  }
+  const held = await store.get("conduit.broker");
+  return held && held["conduit.broker"] ? held["conduit.broker"] : CONFIG.broker;
 }
 
 /* The secret, if the user has approved one. */
@@ -457,6 +495,7 @@ async function pollForTheSecret() {
 /* The start of the tunnel. */
 async function start() {
   state.sequence = await loadSequence();
+  CONFIG.broker = await loadBroker();
   if (!state.keys) {
     const pair = await generateKeyPair();
     state.keys = pair;

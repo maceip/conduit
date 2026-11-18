@@ -8,7 +8,19 @@ use std::net::SocketAddr;
 async fn main() {
     let registry = InMemoryRegistry::new();
 
-    // The surface of the bootstrap: one surface, one grant, one token.
+    // The surfaces of the bootstrap: the one the shipped extension
+    // offers, and the mail shape the research names.  One grant per
+    // surface for each instance an end may name.
+    let tabs_id = SchemaId::new("dev.conduit.browser.tabs", 1);
+    registry
+        .put_surface(conduit_protocol::Surface {
+            id: tabs_id.clone(),
+            schemas: vec![SchemaId::new("dev.conduit.browser.tab", 1)],
+            scopes: vec![Scope::new("browser.tabs", conduit_protocol::verb::READ)],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
+        })
+        .await;
+
     let surface_id = SchemaId::new("dev.conduit.mail.compose", 1);
     registry
         .put_surface(conduit_protocol::Surface {
@@ -21,19 +33,30 @@ async fn main() {
             schemes: vec!["p256-aes256gcm/v1".to_string()],
         })
         .await;
+
+    for instance in ["bootstrap", "extension"] {
+        registry
+            .put_grant(Grant {
+                surface: tabs_id.clone(),
+                instance: instance.to_string(),
+                scopes: vec![Scope::new("browser.tabs", conduit_protocol::verb::READ)],
+                schemes: vec!["p256-aes256gcm/v1".to_string()],
+            })
+            .await;
+        registry
+            .put_grant(Grant {
+                surface: surface_id.clone(),
+                instance: instance.to_string(),
+                scopes: vec![
+                    Scope::new("mail.compose", conduit_protocol::verb::READ),
+                    Scope::new("mail.compose", conduit_protocol::verb::WRITE),
+                ],
+                schemes: vec!["p256-aes256gcm/v1".to_string()],
+            })
+            .await;
+    }
     registry
-        .put_grant(Grant {
-            surface: surface_id.clone(),
-            instance: "bootstrap".to_string(),
-            scopes: vec![
-                Scope::new("mail.compose", conduit_protocol::verb::READ),
-                Scope::new("mail.compose", conduit_protocol::verb::WRITE),
-            ],
-            schemes: vec!["p256-aes256gcm/v1".to_string()],
-        })
-        .await;
-    registry
-        .put_token("bootstrap-token", vec![surface_id])
+        .put_token("bootstrap-token", vec![tabs_id, surface_id])
         .await;
 
     let state = AppState {

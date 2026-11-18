@@ -248,3 +248,17 @@ pub fn public_key_hex<const N: usize>(bytes: &[u8; N]) -> String {
     }
     text
 }
+
+/// Key material, as base64url without padding.
+///
+/// The hello carries the public key and the nonce prefix this way: the
+/// same encoding as the sealed blob, so a frame has one encoding and
+/// not two.
+pub fn bytes_to_base64url<const N: usize>(bytes: &[u8; N]) -> String {
+    base64_url::encode(bytes)
+}
+
+/// The bytes of that key material.
+pub fn bytes_from_base64url(text: &str) -> Option<Vec<u8>> {
+    base64_url::decode(text).ok()
+}

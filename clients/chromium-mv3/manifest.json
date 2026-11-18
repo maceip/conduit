@@ -10,7 +10,7 @@
     "type": "module"
   },
   "permissions": ["storage", "tabs"],
-  "host_permissions": ["wss://broker.example/*"],
+  "host_permissions": ["wss://broker.example/*", "ws://127.0.0.1/*", "http://127.0.0.1/*"],
   "action": {
     "default_title": "Conduit",
     "default_popup": "popup.html"

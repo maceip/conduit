@@ -151,7 +151,9 @@ broker carries the payload as an opaque string it never opens.
 
 * **ECDH over P-256** for the key agreement, at the hello, between the
   two ends — the broker is not a party to it.  The hello carries the
-  public key of each end and the prefix of its nonces.
+  public key of each end and the prefix of its nonces, both **base64url
+  without padding** — the same encoding as the sealed blob, so a frame
+  has one encoding and not two.
 * **HKDF-SHA256** over the shared secret, with the string of zeros RFC
   5869 names as the salt, to make **two directional keys**: one for what
   the extension sends and one for what the client sends, so a frame

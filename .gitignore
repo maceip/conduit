@@ -1,3 +1,12 @@
 /target
 
 node_modules/
+
+# The assembled extension clients: build output of
+# scripts/assemble-clients.mjs, copied out of clients/shared.
+/clients/chromium-mv3/background.js
+/clients/chromium-mv3/sealing.js
+/clients/chromium-mv3/surface-browser.js
+/clients/safari-mv3/background.js
+/clients/safari-mv3/sealing.js
+/clients/safari-mv3/surface-browser.js

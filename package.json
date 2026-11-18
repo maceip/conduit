@@ -3,8 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "assemble": "node scripts/assemble-clients.mjs",
     "test": "node --test clients/shared/sealing.test.js clients/shared/surface-browser.test.js",
-    "test:browser": "node scripts/browser-test.mjs"
+    "test:browser": "node scripts/browser-test.mjs",
+    "test:e2e": "node scripts/extension-e2e.mjs"
   },
   "devDependencies": {
     "playwright": "^1.49.0"
