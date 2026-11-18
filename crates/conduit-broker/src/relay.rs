@@ -4,6 +4,11 @@
 //! with the grant in its hand.  The broker reads the envelope of every
 //! frame, checks the scope it names against the grant, and forwards the
 //! frame *sealed* — it never opens the payload.
+//!
+//! The frames keep the sequence number of the end that sent them.  That
+//! number is part of the nonce the payload is sealed under, so a frame
+//! that the broker renumbered could not be opened.  The broker numbers
+//! nothing of its own.
 
 use crate::{failure_frame, registry::Registry, scopes_the_grant_allows};
 use axum::extract::ws::{Message, WebSocket};
@@ -14,7 +19,9 @@ use tokio::sync::mpsc;
 /// A tunnel: one extension, and the clients that are subscribed to it.
 ///
 /// The tunnel owns the two channels that connect the ends: the frames
-/// going to the extension, and the frames going to the client.
+/// going to the extension, and the frames going to the client.  Both
+/// are buffered, so an end that arrives late still finds the frames
+/// that were waiting for it.
 #[derive(Clone)]
 pub struct Tunnel {
     /// The registry the tunnel asks about surfaces and grants.
@@ -22,17 +29,17 @@ pub struct Tunnel {
     /// The grant in force.
     grant: Grant,
     /// The frames on their way to the extension.
-    to_extension: mpsc::Sender<Frame>,
+    pub(crate) to_extension: mpsc::Sender<Frame>,
     /// The frames on their way to the client.
-    to_client: mpsc::Sender<Frame>,
+    pub(crate) to_client: mpsc::Sender<Frame>,
     /// The receiver for the extension, taken once, when it connects.
     for_extension: Arc<tokio::sync::Mutex<Option<mpsc::Receiver<Frame>>>>,
     /// The receiver for the client, taken once, when it connects.
     for_client: Arc<tokio::sync::Mutex<Option<mpsc::Receiver<Frame>>>>,
-    /// The ring, for resume.
-    replay: Arc<tokio::sync::Mutex<Replay>>,
-    /// The sequence number of the tunnel.
-    sequence: Arc<tokio::sync::Mutex<u64>>,
+    /// The frames the extension sent, for resume.
+    from_extension: Arc<tokio::sync::Mutex<Replay>>,
+    /// The frames the client sent, for resume.
+    from_client: Arc<tokio::sync::Mutex<Replay>>,
 }
 
 impl Tunnel {
@@ -47,8 +54,8 @@ impl Tunnel {
             to_client,
             for_extension: Arc::new(tokio::sync::Mutex::new(Some(for_extension))),
             for_client: Arc::new(tokio::sync::Mutex::new(Some(for_client))),
-            replay: Arc::new(tokio::sync::Mutex::new(Replay::new())),
-            sequence: Arc::new(tokio::sync::Mutex::new(0)),
+            from_extension: Arc::new(tokio::sync::Mutex::new(Replay::new())),
+            from_client: Arc::new(tokio::sync::Mutex::new(Replay::new())),
         }
     }
 
@@ -67,21 +74,27 @@ impl Tunnel {
         &self.grant
     }
 
-    /// The next sequence number of the tunnel.
-    pub async fn next_sequence(&self) -> u64 {
-        let mut sequence = self.sequence.lock().await;
-        *sequence += 1;
-        *sequence
+    /// Put a frame into the ring of the extension's frames, for resume.
+    pub async fn remember_from_extension(&self, frame: &Frame) {
+        self.from_extension
+            .lock()
+            .await
+            .push(frame.seq, frame.clone());
     }
 
-    /// Put a frame into the ring, for resume.
-    pub async fn remember(&self, frame: &Frame) {
-        self.replay.lock().await.push(frame.seq, frame.clone());
+    /// Put a frame into the ring of the client's frames, for resume.
+    pub async fn remember_from_client(&self, frame: &Frame) {
+        self.from_client.lock().await.push(frame.seq, frame.clone());
     }
 
-    /// The frames of the tunnel after that sequence number.
-    pub async fn replay_from(&self, after: u64) -> (Vec<Frame>, u64, bool) {
-        self.replay.lock().await.replay_from(after)
+    /// The frames the extension sent, after that sequence number.
+    pub async fn replay_from_extension(&self, after: u64) -> (Vec<Frame>, u64, bool) {
+        self.from_extension.lock().await.replay_from(after)
+    }
+
+    /// The frames the client sent, after that sequence number.
+    pub async fn replay_from_client(&self, after: u64) -> (Vec<Frame>, u64, bool) {
+        self.from_client.lock().await.replay_from(after)
     }
 
     /// Whether the frame may cross the tunnel.
@@ -104,7 +117,6 @@ pub async fn serve_extension(
     mut socket: WebSocket,
     tunnel: Tunnel,
     mut for_extension: mpsc::Receiver<Frame>,
-    _hello: conduit_protocol::SchemaId,
 ) {
     let to_client = tunnel.to_client.clone();
     loop {
@@ -131,6 +143,7 @@ pub async fn serve_extension(
                             }
                             continue;
                         }
+                        tunnel.remember_from_extension(&frame).await;
                         if to_client.send(frame).await.is_err() {
                             break;
                         }
@@ -140,9 +153,7 @@ pub async fn serve_extension(
                 }
             }
             frame = for_extension.recv() => {
-                let Some(mut frame) = frame else { break };
-                frame.seq = tunnel.next_sequence().await;
-                tunnel.remember(&frame).await;
+                let Some(frame) = frame else { break };
                 let text = serde_json::to_string(&frame).unwrap_or_default();
                 if socket.send(Message::Text(text.into())).await.is_err() {
                     break;
@@ -157,7 +168,6 @@ pub async fn serve_client(
     mut socket: WebSocket,
     tunnel: Tunnel,
     mut for_client: mpsc::Receiver<Frame>,
-    _hello: conduit_protocol::SchemaId,
     _token: String,
 ) {
     let to_extension = tunnel.to_extension.clone();
@@ -200,6 +210,7 @@ pub async fn serve_client(
                                 }
                             }
                             _ => {
+                                tunnel.remember_from_client(&frame).await;
                                 if to_extension.send(frame).await.is_err() {
                                     break;
                                 }
@@ -211,9 +222,7 @@ pub async fn serve_client(
                 }
             }
             frame = for_client.recv() => {
-                let Some(mut frame) = frame else { break };
-                frame.seq = tunnel.next_sequence().await;
-                tunnel.remember(&frame).await;
+                let Some(frame) = frame else { break };
                 let text = serde_json::to_string(&frame).unwrap_or_default();
                 if socket.send(Message::Text(text.into())).await.is_err() {
                     break;

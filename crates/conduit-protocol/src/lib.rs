@@ -11,6 +11,8 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+pub mod sealed;
+
 /// The version of the protocol this crate speaks.
 pub const PROTOCOL_VERSION: u16 = 1;
 

@@ -73,6 +73,25 @@ fn hello() -> String {
     .expect("a frame is JSON")
 }
 
+/// Read text frames until one of them holds the needle.
+///
+/// The broker hands the hello of one end to the other end, so a reader
+/// that wants one particular frame may see the hello first.
+async fn read_until(
+    socket: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    >,
+    needle: &str,
+) -> String {
+    for _ in 0..8 {
+        let text = read(socket).await;
+        if text.contains(needle) {
+            return text;
+        }
+    }
+    panic!("no frame held {needle}");
+}
+
 /// Read one text frame.
 async fn read(
     socket: &mut tokio_tungstenite::WebSocketStream<
@@ -104,7 +123,7 @@ async fn a_frame_from_the_extension_crosses_to_the_client() {
         .send(Message::Text(hello()))
         .await
         .expect("the hello goes");
-    let welcome = read(&mut extension).await;
+    let welcome = read_until(&mut extension, "welcome").await;
     assert!(
         welcome.contains("welcome"),
         "the broker answers the hello with a welcome: {welcome}"
@@ -130,7 +149,7 @@ async fn a_frame_from_the_extension_crosses_to_the_client() {
         schema: SchemaId::new("dev.conduit.mail.message", 1),
         channel: "mail.messages".to_string(),
         call: None,
-        seq: 0,
+        seq: 7,
         payload: Some("c2VhbGVk".to_string()),
     })
     .expect("a frame is JSON");
@@ -139,12 +158,15 @@ async fn a_frame_from_the_extension_crosses_to_the_client() {
         .await
         .expect("the publish goes");
 
-    let crossed = read(&mut client).await;
+    let crossed = read_until(&mut client, "publish").await;
     let frame: Frame = serde_json::from_str(&crossed).expect("the frame is JSON");
     assert_eq!(frame.kind, FrameType::Publish);
     assert_eq!(frame.channel, "mail.messages");
     assert_eq!(frame.payload.as_deref(), Some("c2VhbGVk"));
-    assert!(frame.seq > 0, "the broker numbered the frame");
+    assert_eq!(
+        frame.seq, 7,
+        "the broker keeps the sequence number of the end that sent the frame"
+    );
 }
 
 #[tokio::test]
@@ -160,7 +182,7 @@ async fn a_subscription_for_a_scope_that_was_not_granted_is_refused() {
         .send(Message::Text(hello()))
         .await
         .expect("the hello goes");
-    let _ = read(&mut extension).await;
+    let _ = read_until(&mut extension, "welcome").await;
 
     let (mut client, _) = tokio_tungstenite::connect_async(format!(
         "{address}/v1/tunnel?role=client&surface=dev.conduit.mail.compose%2Fv1&token=token"
@@ -171,7 +193,7 @@ async fn a_subscription_for_a_scope_that_was_not_granted_is_refused() {
         .send(Message::Text(hello()))
         .await
         .expect("the hello goes");
-    let _ = read(&mut client).await;
+    let _ = read_until(&mut client, "welcome").await;
 
     // The grant covers read, not write.
     let subscribe = serde_json::json!({
@@ -187,7 +209,7 @@ async fn a_subscription_for_a_scope_that_was_not_granted_is_refused() {
         .await
         .expect("the subscription goes");
 
-    let refusal = read(&mut client).await;
+    let refusal = read_until(&mut client, "scope_denied").await;
     assert!(
         refusal.contains("scope_denied"),
         "the scope that was not granted is named: {refusal}"
@@ -211,7 +233,7 @@ async fn a_subscription_for_a_scope_that_was_granted_goes_through() {
         .send(Message::Text(hello()))
         .await
         .expect("the hello goes");
-    let _ = read(&mut extension).await;
+    let _ = read_until(&mut extension, "welcome").await;
 
     let (mut client, _) = tokio_tungstenite::connect_async(format!(
         "{address}/v1/tunnel?role=client&surface=dev.conduit.mail.compose%2Fv1&token=token"
@@ -222,7 +244,7 @@ async fn a_subscription_for_a_scope_that_was_granted_goes_through() {
         .send(Message::Text(hello()))
         .await
         .expect("the hello goes");
-    let _ = read(&mut client).await;
+    let _ = read_until(&mut client, "welcome").await;
 
     let subscribe = serde_json::json!({
         "t": "subscribe",
@@ -238,7 +260,7 @@ async fn a_subscription_for_a_scope_that_was_granted_goes_through() {
         .expect("the subscription goes");
 
     // The subscription reaches the extension, which is the other end.
-    let arrived = read(&mut extension).await;
+    let arrived = read_until(&mut extension, "subscribe").await;
     assert!(
         arrived.contains("subscribe"),
         "the subscription reaches the extension: {arrived}"
@@ -259,7 +281,7 @@ async fn an_extension_with_the_wrong_secret_is_refused() {
         .await
         .expect("the hello goes");
 
-    let refusal = read(&mut extension).await;
+    let refusal = read_until(&mut extension, "unauthorized").await;
     assert!(
         refusal.contains("unauthorized"),
         "the wrong secret is refused: {refusal}"

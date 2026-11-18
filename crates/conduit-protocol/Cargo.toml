@@ -8,5 +8,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+aes-gcm.workspace = true
+base64-url.workspace = true
+hkdf.workspace = true
+rand_core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+p256.workspace = true
+sha2.workspace = true

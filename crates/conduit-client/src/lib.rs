@@ -23,9 +23,10 @@
 //! # }
 //! ```
 
+use conduit_protocol::sealed::{self, KeyPair, SharedSecret};
 use conduit_protocol::{Frame, FrameType, SchemaId, Scope};
 use futures_util::{SinkExt, StreamExt};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::Message;
@@ -114,7 +115,7 @@ impl std::fmt::Display for AddressError {
 
 impl std::error::Error for AddressError {}
 
-/// An event: a frame, with its payload still sealed.
+/// An event: a frame, with its payload opened.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Event {
     /// The schema the payload follows.
@@ -123,8 +124,24 @@ pub struct Event {
     pub channel: String,
     /// The sequence number of the event.
     pub seq: u64,
-    /// The sealed payload.
+    /// The payload, opened.
     pub payload: String,
+    /// The payload as it arrived, sealed.
+    pub sealed: String,
+}
+
+/// The keys of a tunnel, once the two ends have met.
+///
+/// The payload is sealed end to end: the broker sees the envelope and
+/// nothing else.
+#[derive(Clone)]
+pub struct Keys {
+    /// The key that seals what the client sends.
+    pub to_extension: [u8; 32],
+    /// The key that opens what the extension sends.
+    pub to_extension_read: [u8; 32],
+    /// The nonce prefix the extension uses.
+    pub prefix_of_extension: [u8; 4],
 }
 
 /// A client: a connection to the broker.
@@ -133,6 +150,14 @@ pub struct Client {
     sequence: u64,
     channels: HashMap<String, Vec<Scope>>,
     surface: SchemaId,
+    /// The key pair of this end.
+    keys: KeyPair,
+    /// The prefix this end uses in its nonces.
+    prefix: [u8; 4],
+    /// The keys of the tunnel, once the extension's hello has arrived.
+    tunnel: Option<(SharedSecret, [u8; 4])>,
+    /// The events that have arrived and not yet been handed over.
+    pending: VecDeque<Event>,
 }
 
 impl Client {
@@ -160,6 +185,10 @@ impl Client {
             sequence: 0,
             channels: HashMap::new(),
             surface: address.surface(),
+            keys: KeyPair::generate(),
+            prefix: sealed::random_prefix(),
+            tunnel: None,
+            pending: VecDeque::new(),
         };
         let hello = Frame {
             kind: FrameType::Hello,
@@ -167,7 +196,7 @@ impl Client {
             channel: "tunnel".to_string(),
             call: None,
             seq: 0,
-            payload: None,
+            payload: Some(client.hello_payload()),
         };
         client.send(&hello).await?;
         Ok(client)
@@ -185,6 +214,7 @@ impl Client {
                 connected: self.surface.to_string(),
             });
         }
+        self.pump().await?;
         let channel = address.channel();
         let payload = serde_json::json!({
             "channel": channel,
@@ -210,6 +240,9 @@ impl Client {
     /// The next event of the tunnel, whatever channel it belongs to.
     pub async fn next(&mut self) -> Result<Option<Event>, ClientError> {
         loop {
+            if let Some(event) = self.pending.pop_front() {
+                return Ok(Some(event));
+            }
             let message = self.socket.next().await;
             let Some(message) = message else {
                 return Ok(None);
@@ -218,36 +251,155 @@ impl Client {
             let Message::Text(text) = message else {
                 continue;
             };
-            let frame: Frame = match serde_json::from_str(&text) {
-                Ok(frame) => frame,
-                Err(_) => continue,
-            };
-            match frame.kind {
-                FrameType::Publish => {
-                    return Ok(Some(Event {
-                        schema: frame.schema,
-                        channel: frame.channel,
-                        seq: frame.seq,
-                        payload: frame.payload.unwrap_or_default(),
-                    }));
-                }
-                FrameType::Error => {
-                    return Err(ClientError::Refused(text.to_string()));
-                }
-                FrameType::Ping => {
-                    let pong = Frame {
-                        kind: FrameType::Pong,
-                        schema: SchemaId::new("dev.conduit.pong", 1),
-                        channel: "tunnel".to_string(),
-                        call: None,
-                        seq: self.next_sequence(),
-                        payload: None,
-                    };
-                    self.send(&pong).await?;
-                }
-                _ => continue,
+            if let Some(event) = self.take(&text)? {
+                self.pending.push_back(event);
             }
         }
+    }
+
+    /// Read the frames that have already arrived, without waiting.
+    ///
+    /// The hello of the extension carries its public key, and the client
+    /// cannot publish anything until it has that key; so the frames that
+    /// are waiting are read before anything is sent.
+    pub async fn pump(&mut self) -> Result<(), ClientError> {
+        loop {
+            // A zero timeout reads what has already arrived and waits
+            // for nothing: the frames that are not here yet are read
+            // when the client asks for the next event.
+            let message =
+                match tokio::time::timeout(std::time::Duration::ZERO, self.socket.next()).await {
+                    Ok(Some(Ok(message))) => message,
+                    _ => return Ok(()),
+                };
+            let Message::Text(text) = message else {
+                continue;
+            };
+            if let Some(event) = self.take(&text)? {
+                self.pending.push_back(event);
+            }
+        }
+    }
+
+    /// Take what a frame has to say.
+    fn take(&mut self, text: &str) -> Result<Option<Event>, ClientError> {
+        let frame: Frame = match serde_json::from_str(text) {
+            Ok(frame) => frame,
+            Err(_) => return Ok(None),
+        };
+        match frame.kind {
+            FrameType::Hello => {
+                // The hello of the extension carries its public key.
+                if let Some(payload) = &frame.payload {
+                    self.meet(payload)?;
+                }
+                Ok(None)
+            }
+            FrameType::Publish | FrameType::Result => {
+                let payload = frame.payload.unwrap_or_default();
+                let opened = self.open(&payload, frame.seq)?;
+                Ok(Some(Event {
+                    schema: frame.schema,
+                    channel: frame.channel,
+                    seq: frame.seq,
+                    payload: String::from_utf8_lossy(&opened).to_string(),
+                    sealed: payload,
+                }))
+            }
+            FrameType::Error => Err(ClientError::Refused(text.to_string())),
+            _ => Ok(None),
+        }
+    }
+
+    /// The payload of the hello: who we are, and the public key.
+    fn hello_payload(&self) -> String {
+        serde_json::json!({
+            "role": "client",
+            "surface": self.surface.to_string(),
+            "crypto": {
+                "scheme": sealed::SCHEME,
+                "public": sealed::public_key_hex(&self.keys.public_bytes()),
+                "prefix": sealed::public_key_hex(&self.prefix),
+            },
+        })
+        .to_string()
+    }
+
+    /// The keys of the tunnel, once the extension's hello has arrived.
+    fn tunnel_keys(&self) -> Option<&(SharedSecret, [u8; 4])> {
+        self.tunnel.as_ref()
+    }
+
+    /// Seal a payload for the extension.
+    fn seal(&self, payload: &[u8], seq: u64) -> Result<String, ClientError> {
+        let (shared, _) = self.tunnel_keys().ok_or(ClientError::NoKeys)?;
+        let key = shared.to_client();
+        let sealed = sealed::seal(&key, self.prefix, seq, payload);
+        Ok(sealed.to_base64())
+    }
+
+    /// Publish an event to the extension.
+    ///
+    /// The payload is sealed under the key of the tunnel; the broker
+    /// carries it without opening it.
+    pub async fn publish(
+        &mut self,
+        schema: &SchemaId,
+        channel: &str,
+        payload: &[u8],
+    ) -> Result<(), ClientError> {
+        self.pump().await?;
+        let seq = self.next_sequence();
+        let sealed = self.seal(payload, seq)?;
+        let frame = Frame {
+            kind: FrameType::Publish,
+            schema: schema.clone(),
+            channel: channel.to_string(),
+            call: None,
+            seq,
+            payload: Some(sealed),
+        };
+        self.send(&frame).await
+    }
+
+    /// Open a payload from the extension.
+    fn open(&self, payload: &str, seq: u64) -> Result<Vec<u8>, ClientError> {
+        let (shared, prefix) = self.tunnel_keys().ok_or(ClientError::NoKeys)?;
+        let key = shared.to_extension();
+        let blob = sealed::Sealed::from_base64(payload).ok_or(ClientError::Malformed)?;
+        sealed::open(&key, *prefix, seq, &blob).ok_or(ClientError::Malformed)
+    }
+
+    /// Take the extension's hello and agree the keys of the tunnel.
+    fn meet(&mut self, payload: &str) -> Result<(), ClientError> {
+        let value: serde_json::Value =
+            serde_json::from_str(payload).map_err(|_| ClientError::Malformed)?;
+        let crypto = value.get("crypto").ok_or(ClientError::Malformed)?;
+        let public = crypto
+            .get("public")
+            .and_then(|public| public.as_str())
+            .ok_or(ClientError::Malformed)?;
+        let prefix = crypto
+            .get("prefix")
+            .and_then(|prefix| prefix.as_str())
+            .ok_or(ClientError::Malformed)?;
+
+        let public = hex_to_bytes(public).ok_or(ClientError::Malformed)?;
+        if public.len() != 65 {
+            return Err(ClientError::Malformed);
+        }
+        let mut point = [0u8; 65];
+        point.copy_from_slice(&public);
+        let shared = self.keys.agree(&point);
+
+        let prefix = hex_to_bytes(prefix).ok_or(ClientError::Malformed)?;
+        if prefix.len() != 4 {
+            return Err(ClientError::Malformed);
+        }
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&prefix);
+        self.tunnel = Some((shared, bytes));
+        Ok(())
     }
 
     /// Send a frame.
@@ -286,6 +438,10 @@ pub enum ClientError {
     Encoding(serde_json::Error),
     /// The address names another surface than the connection does.
     WrongSurface { wanted: String, connected: String },
+    /// The extension's hello has not arrived, so there is no key.
+    NoKeys,
+    /// A frame was not what it should have been.
+    Malformed,
 }
 
 impl std::fmt::Display for ClientError {
@@ -300,6 +456,10 @@ impl std::fmt::Display for ClientError {
                 formatter,
                 "the address names the surface {wanted} and the connection is {connected}"
             ),
+            ClientError::NoKeys => formatter.write_str("the extension's hello has not arrived yet"),
+            ClientError::Malformed => {
+                formatter.write_str("the frame was not what it should have been")
+            }
         }
     }
 }
@@ -318,4 +478,18 @@ fn percent_encode(value: &str) -> String {
         }
     }
     encoded
+}
+
+/// The bytes of that hex text.
+fn hex_to_bytes(text: &str) -> Option<Vec<u8>> {
+    if text.len() % 2 != 0 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(text.len() / 2);
+    for pair in text.as_bytes().chunks(2) {
+        let high = (pair[0] as char).to_digit(16)?;
+        let low = (pair[1] as char).to_digit(16)?;
+        bytes.push((high * 16 + low) as u8);
+    }
+    Some(bytes)
 }

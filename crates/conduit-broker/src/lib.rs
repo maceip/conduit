@@ -109,7 +109,8 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                 None => return,
             };
             welcome(&mut socket, &surface).await;
-            relay::serve_extension(socket, tunnel, receiver, hello).await;
+            let _ = tunnel.to_client.send(hello.clone()).await;
+            relay::serve_extension(socket, tunnel, receiver).await;
         }
         "client" => {
             let token = match params.token.as_deref() {
@@ -138,19 +139,24 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                 None => return,
             };
             welcome(&mut socket, &surface).await;
-            relay::serve_client(socket, tunnel, receiver, hello, token).await;
+            let _ = tunnel.to_extension.send(hello.clone()).await;
+            relay::serve_client(socket, tunnel, receiver, token).await;
         }
         _ => {}
     }
 }
 
 /// The first frame of an end: the hello.
-async fn first_hello(socket: &mut WebSocket) -> Option<conduit_protocol::SchemaId> {
+///
+/// The hello carries the public key of the end, so the frame itself is
+/// kept: the broker hands it to the other end, which needs it to agree
+/// the key of the tunnel.
+async fn first_hello(socket: &mut WebSocket) -> Option<Frame> {
     while let Some(Ok(message)) = socket.recv().await {
         if let Message::Text(text) = message {
             if let Ok(frame) = serde_json::from_str::<Frame>(&text) {
                 if frame.kind == FrameType::Hello {
-                    return Some(frame.schema);
+                    return Some(frame);
                 }
             }
         }
