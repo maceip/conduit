@@ -1,0 +1,12 @@
+{
+  "name": "conduit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test clients/shared/sealing.test.js clients/shared/surface-browser.test.js",
+    "test:browser": "node scripts/browser-test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
