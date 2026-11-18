@@ -33,6 +33,13 @@ jobs:
       - name: Tests
         run: cargo test --workspace
 
+      - name: The extension clients parse
+        run: |
+          for file in clients/shared/background.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js; do
+            node --check "$file"
+            echo "ok $file"
+          done
+
       - name: The schemas are JSON
         run: |
           python3 - <<'PY'
@@ -40,6 +47,12 @@ jobs:
           for path in glob.glob("spec/**/*.json", recursive=True):
               with open(path) as handle:
                   json.load(handle)
+              print("ok", path)
+          for path in glob.glob("clients/*/manifest.json"):
+              with open(path) as handle:
+                  manifest = json.load(handle)
+              assert manifest["manifest_version"] == 3, path
+              assert "background" in manifest, path
               print("ok", path)
           PY
 

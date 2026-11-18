@@ -5,8 +5,7 @@
   "description": "A typed, scoped tunnel from this browser to a conduit client.",
   "minimum_chrome_version": "116",
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "service_worker": "background.js"
   },
   "permissions": ["storage"],
   "host_permissions": ["wss://broker.example/*"],

@@ -248,6 +248,13 @@ async function onMessage(message) {
       break;
     case "status":
       return { ok: true, sequence: state.sequence, connected: !!state.socket };
+    case "toggle":
+      if (state.socket) {
+        stop();
+      } else {
+        start();
+      }
+      break;
     case "stop":
       stop();
       break;
