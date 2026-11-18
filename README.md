@@ -30,7 +30,8 @@ the extension.  The full argument is in [`docs/architecture.md`](docs/architectu
 
 | | |
 |---|---|
-| [`docs/research/extension-surfaces.md`](docs/research/extension-surfaces.md) | the sourced survey of the surfaces that already exist, and the ones that hide themselves |
+| [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md) | the catalogue: one row per app, the surface it ships, and whether the user can see it |
+| [`docs/research/extension-surfaces.md`](docs/research/extension-surfaces.md) | the survey by kind: web extensions, host plugins, OS app extensions, secret APIs, agent protocols, marketplaces |
 | [`docs/architecture.md`](docs/architecture.md) | the topology, the two ends, and the broker |
 | [`docs/protocol.md`](docs/protocol.md) | the frames, the scopes, the schemes, the errors |
 | [`spec/`](spec) | the normative JSON Schemas and the frame registry |
