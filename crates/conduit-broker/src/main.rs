@@ -21,6 +21,16 @@ async fn main() {
         })
         .await;
 
+    let windows_id = SchemaId::new("dev.conduit.browser.windows", 1);
+    registry
+        .put_surface(conduit_protocol::Surface {
+            id: windows_id.clone(),
+            schemas: vec![SchemaId::new("dev.conduit.browser.window", 1)],
+            scopes: vec![Scope::new("browser.windows", conduit_protocol::verb::READ)],
+            schemes: vec!["p256-aes256gcm/v1".to_string()],
+        })
+        .await;
+
     let surface_id = SchemaId::new("dev.conduit.mail.compose", 1);
     registry
         .put_surface(conduit_protocol::Surface {
@@ -45,6 +55,14 @@ async fn main() {
             .await;
         registry
             .put_grant(Grant {
+                surface: windows_id.clone(),
+                instance: instance.to_string(),
+                scopes: vec![Scope::new("browser.windows", conduit_protocol::verb::READ)],
+                schemes: vec!["p256-aes256gcm/v1".to_string()],
+            })
+            .await;
+        registry
+            .put_grant(Grant {
                 surface: surface_id.clone(),
                 instance: instance.to_string(),
                 scopes: vec![
@@ -56,7 +74,7 @@ async fn main() {
             .await;
     }
     registry
-        .put_token("bootstrap-token", vec![tabs_id, surface_id])
+        .put_token("bootstrap-token", vec![tabs_id, windows_id, surface_id])
         .await;
 
     let state = AppState {

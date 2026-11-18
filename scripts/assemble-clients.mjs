@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
-const SHARED = ["background.js", "sealing.js", "surface-browser.js"];
+const SHARED = ["background.js", "near-end.js", "sealing.js", "surface-browser.js", "surface-windows.js"];
 const CLIENTS = ["chromium-mv3", "safari-mv3"];
 
 for (const client of CLIENTS) {

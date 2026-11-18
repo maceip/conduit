@@ -152,7 +152,14 @@ await popup.goto(`chrome-extension://${extensionId}/popup.html`);
 await popup.evaluate(
   ([brokerUrl, secret]) =>
     new Promise((resolve) => {
-      const values = { "conduit.broker": brokerUrl, "conduit.secret": secret };
+      /* The secret of the bootstrap works for every surface: it is the
+       * broker's own test secret, and the device flow is covered by the
+       * broker's tests. */
+      const values = {
+        "conduit.broker": brokerUrl,
+        "conduit.secret.dev.conduit.browser.tabs/v1": secret,
+        "conduit.secret.dev.conduit.browser.windows/v1": secret,
+      };
       if (chrome.storage && chrome.storage.session) {
         chrome.storage.session.set(values, () => {
           if (chrome.storage.local) {

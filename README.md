@@ -42,7 +42,9 @@ the extension.  The full argument is in [`docs/architecture.md`](docs/architectu
 | `crates/conduit-client` | the far end: a typed client over a `conduit://` address |
 | `crates/conduit-native-host` | the Safari near end: a native host that holds the socket |
 | `clients/shared/sealing.js` | the sealing, in the browser: the same scheme as the Rust |
+| `clients/shared/near-end.js` | the tunnel machinery, for any surface: the plug a surface drops into |
 | `clients/shared/surface-browser.js` | the first surface: the tab in front of the user |
+| `clients/shared/surface-windows.js` | the second surface: the windows the browser has open |
 | `clients/chromium-mv3`, `clients/safari-mv3` | the extension clients |
 
 ## The three adjectives
@@ -60,6 +62,22 @@ named**, and a frame outside the grant is dropped and counted.
 **Schemed.**  Two schemes.  The address: `conduit://<surface>/<channel>@v1`,
 so a client may hold a URI and nothing else.  The encryption: the payload
 is sealed between the two ends, and the broker never opens it.
+
+## The surfaces
+
+A surface is a module — an identifier, a channel, a schema, a scope, and
+a read — and `clients/shared/near-end.js` carries it.  The tunnel
+machinery knows nothing about what it carries, and a read that says
+there is nothing publishes nothing.
+
+| surface | channel | schema | scope | reads |
+|---|---|---|---|---|
+| `dev.conduit.browser.tabs/v1` | `tabs` | `dev.conduit.browser.tab/v1` | `browser.tabs.read` | the tab in front of the user |
+| `dev.conduit.browser.windows/v1` | `windows` | `dev.conduit.browser.window/v1` | `browser.windows.read` | the windows the browser has open |
+
+The next surfaces are the ones the research names: a Mail adapter behind
+`dev.conduit.mail.compose/v1`, and a desktop-app adapter.  They are
+written per app family — the near end is not.
 
 ## Running it
 
