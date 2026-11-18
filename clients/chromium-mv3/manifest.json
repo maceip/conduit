@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Conduit",
+  "version": "0.1.0",
+  "description": "A typed, scoped tunnel from this browser to a conduit client.",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["wss://broker.example/*"],
+  "action": {
+    "default_title": "Conduit",
+    "default_popup": "popup.html"
+  }
+}

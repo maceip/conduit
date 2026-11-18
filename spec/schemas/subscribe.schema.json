@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.subscribe/v1",
+  "title": "subscribe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["channel", "scopes"],
+  "properties": {
+    "channel": { "type": "string" },
+    "scopes": { "type": "array", "items": { "type": "string" } },
+    "schemas": { "type": "array", "items": { "type": "string" } },
+    "window": { "type": "integer", "minimum": 1, "description": "The number of frames per second the client asks for." }
+  }
+}

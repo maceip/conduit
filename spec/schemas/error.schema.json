@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.error/v1",
+  "title": "error",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["code", "message"],
+  "properties": {
+    "code": {
+      "type": "string",
+      "enum": ["unauthorized", "scope_denied", "unknown_type", "schema_invalid", "schema_unknown", "surface_unknown", "expired", "too_large"]
+    },
+    "message": { "type": "string" },
+    "ref": { "type": "integer", "minimum": 0, "description": "The id of the frame this answers." },
+    "scope": { "type": "string", "description": "The scope that was denied." }
+  }
+}

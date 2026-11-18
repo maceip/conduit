@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.publish/v1",
+  "title": "publish",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "payload"],
+  "properties": {
+    "schema": { "type": "string", "description": "The schema id of the payload." },
+    "payload": { "type": "string", "description": "The payload, sealed." },
+    "scope": { "type": "string", "description": "The scope this frame exercises." }
+  }
+}

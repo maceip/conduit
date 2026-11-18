@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.ping/v1",
+  "title": "ping",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "t0": { "type": "integer", "description": "The time the sender started measuring, in milliseconds." }
+  }
+}

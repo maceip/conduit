@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.hello/v1",
+  "title": "hello",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["role", "surface"],
+  "properties": {
+    "role": { "type": "string", "enum": ["extension", "client"] },
+    "surface": { "type": "string" },
+    "instance": { "type": "string" },
+    "resume": { "type": "integer", "minimum": 0, "description": "The last sequence number the end has seen." },
+    "scopes": { "type": "array", "items": { "type": "string" } },
+    "schemes": { "type": "array", "items": { "type": "string" } },
+    "crypto": { "type": "string", "description": "The scheme the two ends agreed for the payload." }
+  }
+}

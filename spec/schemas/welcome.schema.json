@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/dev.conduit.welcome/v1",
+  "title": "welcome",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["surface", "seq"],
+  "properties": {
+    "surface": { "type": "string" },
+    "seq": { "type": "integer", "minimum": 0, "description": "The sequence number the replay stopped at." },
+    "replayed": { "type": "integer", "minimum": 0 },
+    "gap": { "type": "boolean", "description": "True when the gap was larger than the ring and a fresh snapshot is needed." }
+  }
+}

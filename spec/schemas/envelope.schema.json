@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://conduit.dev/schemas/envelope.schema.json",
+  "title": "Conduit frame envelope",
+  "description": "Every frame on the wire is one of these.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["t", "s", "c", "seq"],
+  "properties": {
+    "t": {
+      "type": "string",
+      "description": "The frame type, from the registry in spec/frames.json.",
+      "pattern": "^[a-z][a-z0-9_]{0,31}$"
+    },
+    "s": {
+      "type": "string",
+      "description": "The schema id of the payload: reverse DNS with a version.",
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*/v[0-9]+$"
+    },
+    "c": {
+      "type": "string",
+      "description": "The channel the frame belongs to.",
+      "pattern": "^[A-Za-z0-9]([A-Za-z0-9._-]{0,62}[A-Za-z0-9])?$"
+    },
+    "i": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The call id, for frames that answer a call."
+    },
+    "seq": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The sequence number of this frame in the tunnel."
+    },
+    "p": {
+      "type": "string",
+      "description": "The sealed payload."
+    }
+  }
+}

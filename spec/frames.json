@@ -1,0 +1,18 @@
+{
+  "$comment": "The registry of frame types. An unknown type is refused, not ignored.",
+  "version": 1,
+  "frames": [
+    { "type": "hello",      "direction": "both",             "schema": "dev.conduit.hello/v1",      "sealed": true },
+    { "type": "welcome",    "direction": "broker->end",     "schema": "dev.conduit.welcome/v1",    "sealed": false },
+    { "type": "subscribe",  "direction": "client->broker",  "schema": "dev.conduit.subscribe/v1",  "sealed": false },
+    { "type": "subscribed", "direction": "broker->client",  "schema": "dev.conduit.subscribed/v1", "sealed": false },
+    { "type": "unsubscribe","direction": "client->broker",  "schema": "dev.conduit.unsubscribe/v1","sealed": false },
+    { "type": "publish",    "direction": "extension->broker","schema": "dev.conduit.publish/v1",   "sealed": true },
+    { "type": "call",       "direction": "client->extension","schema": "dev.conduit.call/v1",     "sealed": true },
+    { "type": "result",     "direction": "extension->broker","schema": "dev.conduit.result/v1",   "sealed": true },
+    { "type": "error",      "direction": "both",             "schema": "dev.conduit.error/v1",      "sealed": false },
+    { "type": "ping",       "direction": "both",             "schema": "dev.conduit.ping/v1",       "sealed": false },
+    { "type": "pong",       "direction": "both",             "schema": "dev.conduit.pong/v1",       "sealed": false },
+    { "type": "grant",      "direction": "broker->extension","schema": "dev.conduit.grant/v1",      "sealed": false }
+  ]
+}
