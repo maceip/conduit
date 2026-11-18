@@ -16,9 +16,10 @@ against:
 
 | gate | command | result |
 |---|---|---|
-| the protocol, broker and client | `cargo test --workspace` | **31 passed, 0 failed** |
-| the surfaces, in node | `node --test clients/shared/sealing.test.js clients/shared/surface-browser.test.js` | **12 passed, 0 failed** |
+| the protocol, broker and client | `cargo test --workspace` | **35 passed, 0 failed** (the adapter contract added 4) |
+| the surfaces, in node | `node --test clients/shared/*.test.js` | **19 passed, 0 failed** (the windows surface added 7) |
 | the sealing, in a real browser | `node scripts/browser-test.mjs` | **5 passed, 0 failed** — the browser's ciphertext is the one the Rust seals, byte for byte |
+| the extension, end to end | `node scripts/extension-e2e.mjs` | **PASS** — a real Chromium, the extension's own toggle, the Rust far end opening a sealed tab frame |
 
 The repository had no `package.json`, so the browser test could not run
 at all on a fresh clone.  It now has a minimal one: playwright is a
@@ -102,14 +103,14 @@ through the app's own surface; Conduit carries its frames.
 
 ## 4. The phases
 
-| phase | what lands | gate |
-|---|---|---|
-| **P0 — health** (done) | `package.json`, playwright as a devDependency, the three commands above recorded and green | the table in §1 |
-| **P1 — the browser run** | an end-to-end script: broker + chromium-mv3 loaded + a far end; one sealed frame observed | `cargo test --workspace` green; the e2e script exits 0 and prints the received frame |
-| **P2 — the research gaps** | every §6 and *not checked* row sourced or deleted | no `not checked` left in either research document |
-| **P3 — the surface plug** | `clients/shared/near-end.js`, surfaces as modules, the tab surface moved onto it | node suite green; a second surface registered and tested |
-| **P4 — the second surface** | the window surface (`dev.conduit.browser.windows/v1`), its scopes, its catalogue row | its tests green in the same run as the tab surface |
-| **P5 — the adapter contract** | a `SurfaceAdapter` trait in Rust with a worked example; the mail scopes declared from the research | its tests green under `cargo test --workspace` |
+| phase | what lands | gate | state |
+|---|---|---|---|
+| **P0 — health** | `package.json`, playwright as a devDependency, the three commands above recorded and green | the table in §1 | **landed** |
+| **P1 — the browser run** | `scripts/extension-e2e.mjs`: broker + chromium-mv3 loaded + a far end; one sealed frame observed | the e2e script exits 0 and prints the received frame | **landed** — three defects fell out of it and are fixed |
+| **P2 — the research gaps** | every §6 and *not checked* row sourced or deleted | no `not checked` left in either research document | **landed** |
+| **P3 — the surface plug** | `clients/shared/near-end.js`, surfaces as modules, the tab surface moved onto it | node suite green; a second surface registered and tested | **landed** |
+| **P4 — the second surface** | the window surface (`dev.conduit.browser.windows/v1`), its scopes | its tests green in the same run as the tab surface | **landed** — 7 tests, its grant in the broker bootstrap |
+| **P5 — the adapter contract** | a `SurfaceAdapter` trait in Rust with a worked example; the mail scopes declared from the research | its tests green under `cargo test --workspace` | **landed** — 4 tests; the mail family is declared and reads nothing |
 
 P1 and P2 are independent and may land in either order.  P3 comes before
 P4 because the second surface must not copy the first one's plumbing.

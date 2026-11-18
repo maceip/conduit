@@ -19,9 +19,8 @@ user can see it.
 * **secret** — there is no installer at all.  The surface is an
   interface, and knowing about it is the whole barrier.
 
-Rows marked **not checked** are known to exist but were not verified
-against a source in this pass.  They are listed so that the gaps are
-visible, not so that they can be cited.
+Every row carries a source.  A row that cannot be sourced does not
+belong in this catalogue.
 
 ---
 
@@ -56,7 +55,10 @@ visible, not so that they can be cited.
 | **Zed** | Rust extensions, with ACP support | an in-process extension | listed | [Zed extensions](https://zed.dev/docs/extensions) |
 | **Neovim** | Lua; the plugin manager | in-process Lua, with LSP and treesitter | listed | [Neovim plugins](https://neovim.io/doc/user/plugins.html) |
 | **Emacs** | ELisp | in-process, with the full editor | listed | [Emacs Lisp](https://www.gnu.org/software/emacs/manual/html_node/elisp/Lisp-Introduction.html) |
-| **Xcode, Sublime, Eclipse, Warp, Kiro, Junie, Tabnine, Augment** | various | various | various | not checked |
+| **Sublime Text** | the plugin API, in Python | a plugin the editor loads | listed | [API reference](https://www.sublimetext.com/docs/api_reference.html) |
+| **Eclipse** | the plug-in development environment (PDE) | a JVM plug-in, through the extension registry | listed | [Eclipse PDE](https://www.eclipse.org/pde/) |
+| **Xcode** | the surface is the source editor extension, above; Xcode itself has no third-party plug-in marketplace | — | hidden | [WWDC16 414](https://devstreaming-cdn.apple.com/videos/wwdc/2016/414k6h6qdzyihpowpaa/414/414_using_and_extending_the_xcode_source_editor.pdf) |
+| **Warp** | the terminal's own extensions | a block or command the terminal runs | listed | [Warp docs](https://docs.warp.dev/) |
 
 ## The writing and design apps
 
@@ -76,7 +78,7 @@ visible, not so that they can be cited.
 | **ACP** | the Agent Client Protocol | a way for an editor to launch and drive an agent | listed | [ACP](https://agentclientprotocol.com/) |
 | **VS Code** | MCP servers from the marketplace | a server the agent calls | listed | [VS Code extensibility](https://code.visualstudio.com/features/extensibility) |
 | **Antigravity** | `agy acp` | the agent, driven from another editor | hidden | [Antigravity](https://antigravity.google/docs/ide/extensions) |
-| **Cursor, Claude Code, the Agent Plugins standard** | plugin directories with a marketplace | a packaged agent, with commands, agents, hooks and MCP servers | listed | not checked |
+| **Cursor, Claude Code, the Agent Plugins standard** | plugin directories with a marketplace | a packaged agent, with commands, agents, hooks and MCP servers | listed | [Agentdex on Cursor](https://agentdex.app/blog/cursor-ai-extensions/), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), [Agent Plugins](https://agent-plugins.org/) |
 
 ## The secret surfaces — no installer at all
 
@@ -87,13 +89,13 @@ an interface you have to know about.
 | surface | what it is | how it is reached | source |
 |---|---|---|---|
 | **Obsidian's local REST API** | an HTTP API over the vault | `127.0.0.1:27124`, Bearer token | [the plugin](https://community.obsidian.md/plugins/rest-api) |
-| **AppleScript / Automation** | scriptable access to most apps | `osascript`, or an app that asks for automation permission | not checked |
-| **Shortcuts** | a library of user-made actions | the Shortcuts app | not checked |
-| **Home Assistant** | integrations for devices | YAML or a custom component, installed from the UI | not checked |
-| **The Docker socket API** | control of the container runtime | a Unix socket | not checked |
-| **The Chrome DevTools Protocol** | control of a browser, fully | a WebSocket on the debug port | not checked |
-| **mitmproxy add-ons, Postman pre-request scripts, Wireshark Lua** | scripts inside a network tool | the tool's own loader | not checked |
-| **D-Bus, MPD, Audio Units, VST3** | interfaces inside the desktop | the system bus, the protocol, the plugin host | not checked |
+| **AppleScript / Automation** | scriptable access to most apps | `osascript`, or an app that asks for automation permission | [AppleScript Language Guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/introduction/ASLR_intro.html) |
+| **Shortcuts** | a library of user-made actions | the Shortcuts app | [Shortcuts User Guide](https://support.apple.com/guide/shortcuts/welcome/ios), [App Intents](https://developer.apple.com/documentation/appintents) |
+| **Home Assistant** | integrations for devices | YAML or a custom component, installed from the UI | [integration manifest](https://developers.home-assistant.io/docs/creating_integration_manifest/) |
+| **The Docker socket API** | control of the container runtime | a Unix socket | [Extend Docker](https://docs.docker.com/engine/extend/), [OCI hooks](https://github.com/opencontainers/runtime-spec/blob/main/config.md) |
+| **The Chrome DevTools Protocol** | control of a browser, fully | a WebSocket on the debug port | [CDP](https://chromedevtools.github.io/devtools-protocol/) |
+| **mitmproxy add-ons, Postman pre-request scripts, Wireshark Lua** | scripts inside a network tool | the tool's own loader | [mitmproxy](https://docs.mitmproxy.org/stable/addons-overview/), [Postman scripts](https://learning.postman.com/docs/tests-and-scripts/write-scripts/intro-to-scripts/), [Wireshark Lua](https://wiki.wireshark.org/Lua) |
+| **D-Bus, MPD, Audio Units, VST3** | interfaces inside the desktop | the system bus, the protocol, the plugin host | [D-Bus](https://dbus.freedesktop.org/doc/dbus-tutorial.html), [MPD](https://www.musicpd.org/doc/html/protocol.html), [WWDC15 408](https://developer.apple.com/videos/play/wwdc2015/408/), [VST3](https://developer.steinberg.help/display/VST/Building+VST+Plug-ins) |
 
 ## What the catalogue says
 
