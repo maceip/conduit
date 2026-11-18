@@ -6,6 +6,7 @@ on:
     paths:
       - "docs/**"
       - "README.md"
+      - "spec/**"
       - ".github/workflows/pages.yml"
 
 permissions:
@@ -29,9 +30,16 @@ jobs:
       - name: Build the documents
         run: |
           mkdir -p _site
-          cp README.md _site/index.md
-          cp -r docs _site/docs
+          pandoc README.md --standalone --metadata title=Conduit -o _site/index.html
+          for file in docs/*.md docs/research/*.md; do
+            out="_site/${file%.md}.html"
+            mkdir -p "$(dirname "$out")"
+            pandoc "$file" --standalone --metadata title=Conduit -o "$out"
+          done
           cp -r spec _site/spec
+          # The links in the documents point at the markdown; the site
+          # serves the HTML.
+          find _site -name '*.html' -print0 | xargs -0 sed -i -e 's|\.md)|.html)|g'
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

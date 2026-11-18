@@ -36,7 +36,7 @@ jobs:
       - name: The schemas are JSON
         run: |
           python3 - <<'PY'
-          import glob, json, sys
+          import glob, json
           for path in glob.glob("spec/**/*.json", recursive=True):
               with open(path) as handle:
                   json.load(handle)
@@ -52,11 +52,11 @@ jobs:
       - name: Install the toolchain
         run: |
           rustup toolchain install stable --profile minimal --component llvm-tools-preview
-          rustup component add cargo-llvm-cov
           rustup default stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
       - name: Coverage
-        run: |
-          cargo llvm-cov --workspace --lcov --output-path lcov.info
+        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
