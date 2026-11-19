@@ -34,7 +34,9 @@ rust in `crates/`, chromium + safari extensions in `clients/`, json schemas in `
 cargo test --workspace
 node --test clients/shared/*.test.js
 node scripts/browser-test.mjs       # sealing, in real Chromium
+scripts/e2e/run.sh                  # broker + extension in chromium + rust client, end to end
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
+node scripts/build-extension.mjs    # => target/extension/{chromium,safari}-mv3, load unpacked
 ```
 
 ## status
@@ -43,7 +45,9 @@ shipped + tested: protocol, broker, client lib, safari native host, both extensi
 
 not built: adapters for mail, desktop apps, anything past the browser tab. each app family needs its own.
 
-not verified: the full extension in chrome. logic is tested against a mocked browser api; nobody has watched a tunnel open in a real browser yet.
+verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
+
+not verified: safari. it can't be driven here; the safari build shares `background.js` and has not run in a browser.
 
 ## why research first
 
