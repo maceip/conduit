@@ -13,16 +13,16 @@ function describe(reply) {
   if (reply.connected) {
     return "connected";
   }
-  if (!reply.running) {
-    return "stopped";
-  }
   if (reply.pairing) {
     return "waiting for approval => approve in the broker tab";
   }
-  if (reply.paired) {
-    return "connecting";
+  if (!reply.paired) {
+    return "not paired";
   }
-  return "not paired";
+  if (!reply.running) {
+    return "stopped";
+  }
+  return "connecting";
 }
 
 function show(reply) {
