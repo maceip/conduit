@@ -34,11 +34,11 @@ jobs:
       - name: Build the documents
         run: |
           mkdir -p _site
-          pandoc README.md --standalone --metadata title=Conduit -o _site/index.html
+          pandoc README.md --standalone --include-in-header=docs/head.html --metadata title=Conduit -o _site/index.html
           for file in docs/*.md docs/research/*.md; do
             out="_site/${file%.md}.html"
             mkdir -p "$(dirname "$out")"
-            pandoc "$file" --standalone --metadata title=Conduit -o "$out"
+            pandoc "$file" --standalone --include-in-header=docs/head.html --metadata title=Conduit -o "$out"
           done
           cp -r spec _site/spec
           # The links in the documents point at the markdown; the site
