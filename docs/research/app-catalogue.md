@@ -24,6 +24,50 @@ belong in this catalogue.
 
 ---
 
+## The top twenty apps
+
+The twenty apps with the most people able to install something into
+them.  The order is reach — how many people use the app *and* can
+install into it — and not a measured ranking; the only measured numbers
+this document quotes are the ones
+[`extension-surfaces.md`](extension-surfaces.md) §4 takes from
+where-is-the-software.  Where one store serves a suite (Microsoft 365,
+Google Workspace), the suite is one row.  The sections below go deeper
+per family, and the secret surfaces have their own table at the end.
+
+| # | app | the surface | what the third party gets | visible? | source |
+|---|---|---|---|---|---|
+| 1 | **Google Chrome** | Manifest V3 web extension | a sandboxed JS bundle: a permission list, a service worker, host permissions; shipped through the Chrome Web Store or sideloaded | listed | [MV3](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3), [Chrome Web Store](https://chromewebstore.google.com/) |
+| 2 | **Apple Safari** | Safari web extension, content blocker | JS plus a **native app extension** that mediates between the JS and the containing app; distributed with the app through the App Store | listed | [messaging](https://developer.apple.com/documentation/safariservices/messaging-between-the-app-and-javascript-in-a-safari-web-extension), [app extensions](https://developer.apple.com/documentation/technologyoverviews/app-extensions.md) |
+| 3 | **Microsoft Edge** | Chromium Manifest V3 | the same bundle shape as Chrome, through the Edge Add-ons store; Microsoft reviews submissions | listed | [Edge extensions](https://learn.microsoft.com/en-us/microsoft-edge/extensions-chromium/) |
+| 4 | **Mozilla Firefox** | WebExtension (MV3) | the same bundle shape, with the `browser.*` namespace; distributed through addons.mozilla.org | listed | [MDN — background](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/manifest.json/background), [AMO](https://addons.mozilla.org/) |
+| 5 | **Microsoft 365** (Word, Excel, PowerPoint, Outlook) | **Office Add-ins** (Office.js); Outlook also carries the legacy COM/VSTO add-ins | a web add-in — HTML and JS in a task pane or ribbon button — with an AppSource listing or a tenant catalog | listed | [Office Add-ins](https://learn.microsoft.com/en-us/office/dev/add-ins/) |
+| 6 | **Google Workspace** (Docs, Sheets, Gmail) | **Workspace add-ons** (CardService), Gmail add-ons, and Apps Script | a manifest plus script functions that Google hosts; published in the Google Workspace Marketplace | listed | [Workspace add-ons](https://developers.google.com/workspace/add-ons/overview), [Gmail add-ons](https://developers.google.com/gmail/add-ons), [Apps Script](https://developers.google.com/apps-script), [Marketplace](https://workspace.google.com/marketplace) |
+| 7 | **Visual Studio Code** | the extension API | a Node or worker extension in the shared extension host; the API covers the editor, the workspace, the language servers and the debuggers | listed | [Extension Marketplace](https://code.visualstudio.com/docs/configure/extensions/extension-marketplace) |
+| 8 | **Slack** | the app platform: bots, slash commands, webhooks, Workflow Builder steps | a remote app over the Web API and Socket Mode — no code runs inside Slack | listed | [Slack API](https://api.slack.com/) |
+| 9 | **Microsoft Teams** | Teams apps: tabs, bots, message extensions, connectors | a manifest package (the app package), sideloaded or from the Teams store; the app itself runs remotely | listed | [Teams platform](https://learn.microsoft.com/en-us/microsoftteams/platform/overview) |
+| 10 | **Discord** | bots, activities, slash commands | a remote app over the gateway and HTTP API — the surface is a remote app, not a plug-in | listed | [Developer Portal](https://discord.com/developers/docs/intro) |
+| 11 | **Zoom** | apps and the Meeting SDK | a remote app, or a native SDK client that joins the meeting; distributed through the Zoom Marketplace | listed | [Zoom developers](https://developers.zoom.us/docs/) |
+| 12 | **Figma** | the Plugin API, widgets | a JS bundle in a sandbox, **short-lived and always user-invoked** — "it's not possible to build plugins that run in the background"; listed on Figma Community after approval | listed, after approval | [Plugin API](https://developers.figma.com/docs/plugins/) |
+| 13 | **Adobe Photoshop** (Creative Cloud) | **UXP** plug-ins (the legacy surface was CEP) | a JS bundle with a manifest and scoped Photoshop APIs; distributed through Adobe's marketplace or sideloaded | listed | [Adobe UXP](https://developer.adobe.com/photoshop/uxp/) |
+| 14 | **WordPress** | plugins and themes, per site | a PHP plugin, installed in the site; the wordpress.org directory is the store | listed | [Plugin handbook](https://developer.wordpress.org/plugins/) |
+| 15 | **Shopify** | apps and **app extensions** (admin, checkout, customer accounts) | a remote app over OAuth, plus UI extension bundles that Shopify injects into its own screens | listed | [Apps](https://shopify.dev/docs/apps), [App extensions](https://shopify.dev/docs/apps/build/app-extensions) |
+| 16 | **Atlassian** (Jira, Confluence) | **Forge** apps (hosted by Atlassian) and Connect (remote iframes) | a manifest plus functions Atlassian runs, or a framed app; distributed through the Atlassian Marketplace | listed | [Forge](https://developer.atlassian.com/platform/forge/) |
+| 17 | **Salesforce** | Lightning components, Apex, managed packages | a package installed into an org; the store is the AppExchange | listed | [AppExchange](https://www.salesforce.com/appexchange/) |
+| 18 | **JetBrains IDEs** (IntelliJ, PyCharm, …) | the plugin platform | a JVM plugin loaded by the IDE | listed | [JetBrains Marketplace docs](https://plugins.jetbrains.com/docs/) |
+| 19 | **Apple Xcode** | the source editor extension | commands over a text buffer; **Xcode draws the UI** — the extension has none | **hidden** | [WWDC16 414](https://devstreaming-cdn.apple.com/videos/wwdc/2016/414k6h6qdzyihpowpaa/414/414_using_and_extending_the_xcode_source_editor.pdf) |
+| 20 | **Unity** | editor extensions, custom packages, Asset Store tools | C# editor code and packages, loaded by the editor; shipped through the Package Manager or the Asset Store | listed | [Extending the Editor](https://docs.unity3d.com/Manual/ExtendingTheEditor.html) |
+
+**What the top twenty says.**  Nine of the twenty ship a web bundle:
+Chrome, Safari, Edge, Firefox, VS Code, Figma, Photoshop, Microsoft 365
+and Google Workspace.  Five install nothing at all — Slack, Teams,
+Discord, Zoom and Salesforce are remote apps the user authorizes.  The
+other six are mixed or in-process: a PHP plugin in the WordPress site,
+a JVM plugin in the JetBrains IDE, an app extension in Xcode, C# in the
+Unity editor, Shopify's injected UI bundles, and Atlassian's hosted
+Forge functions.  The in-process ones are where a tunnel fits best: the
+state lives inside the app and nowhere else.
+
 ## The browsers
 
 | app | the surface | what the third party gets | visible? | source |

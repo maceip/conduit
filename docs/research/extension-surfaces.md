@@ -11,6 +11,11 @@ named at the end of the section.  The fifth section is a list of surfaces
 that hide themselves.  The sixth section is the second pass: the surfaces
 the first pass listed as unchecked, now each with a source.
 
+The companion [`app-catalogue.md`](app-catalogue.md) leads with **the top
+twenty apps** — the twenty with the most people able to install
+something into them — and then goes deeper per family.  This document
+sorts by *kind*; that one sorts by *app*.
+
 ---
 
 ## 1. Six kinds of surface
