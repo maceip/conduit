@@ -79,7 +79,11 @@ jobs:
         run: cargo build -p conduit-broker -p conduit-near-end
 
       - name: Every surface that has a check
-        run: node scripts/surfaces/run.mjs 2>&1 | tee target/surfaces.log
+        # pipefail, so a surface that fails fails the job: without it
+        # the pipeline ends in tee's exit code, which is always zero.
+        run: |
+          set -o pipefail
+          node scripts/surfaces/run.mjs 2>&1 | tee target/surfaces.log
 
       - name: The surfaces that have no check say so
         run: |

@@ -464,14 +464,50 @@ async fn carry(
 /// writes to the standard input of this process and reads what comes
 /// out of the standard output.  The framing is the same as the socket's:
 /// a four-byte big-endian length, then that many bytes of JSON.
+///
+/// The standard input and the standard output of a process are pipes,
+/// and a read of one blocks.  Tokio's own `stdin` blocks the worker
+/// thread it runs on, which on a small machine starves the tunnel: two
+/// workers blocked on the pipes, and nothing left to carry the frames.
+/// So both ends are read and written on the blocking pool, and the
+/// tunnel keeps its workers.
 async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sender<FromPlugin>) {
-    let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
-    let mut writer = tokio::io::stdout();
+    use std::io::Read;
 
     // What the browser says.
+    let (said, mut from_browser) = mpsc::channel::<Vec<u8>>(64);
+    tokio::task::spawn_blocking(move || {
+        let mut input = std::io::stdin();
+        let mut buffer: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            match input.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                Err(_) => break,
+            }
+            // Take the frames out of what has come in.
+            loop {
+                if buffer.len() < 4 {
+                    break;
+                }
+                let length =
+                    u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
+                if length > 1024 * 1024 || buffer.len() < 4 + length {
+                    break;
+                }
+                let frame = buffer[4..4 + length].to_vec();
+                buffer.drain(..4 + length);
+                if said.blocking_send(frame).is_err() {
+                    return;
+                }
+            }
+        }
+    });
+
     let reader_publishes = publishes.clone();
     tokio::spawn(async move {
-        while let Some(body) = read_frame(&mut reader).await {
+        while let Some(body) = from_browser.recv().await {
             let message: FromPlugin = match serde_json::from_slice(&body) {
                 Ok(message) => message,
                 Err(_) => continue,
@@ -483,6 +519,24 @@ async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sende
     });
 
     // What the browser is told.
+    let (told, mut to_browser) = mpsc::channel::<Vec<u8>>(64);
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+        let mut output = std::io::stdout();
+        while let Some(body) = to_browser.blocking_recv() {
+            let length = (body.len() as u32).to_be_bytes();
+            if output.write_all(&length).is_err() {
+                break;
+            }
+            if output.write_all(&body).is_err() {
+                break;
+            }
+            if output.flush().is_err() {
+                break;
+            }
+        }
+    });
+
     let mut events = events.subscribe();
     loop {
         let message = match events.recv().await {
@@ -491,7 +545,7 @@ async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sende
             Err(broadcast::error::RecvError::Closed) => break,
         };
         let body = serde_json::to_vec(&message).unwrap_or_default();
-        if write_frame(&mut writer, &body).await.is_err() {
+        if told.send(body).await.is_err() {
             break;
         }
     }
