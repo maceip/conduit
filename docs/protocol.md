@@ -166,6 +166,9 @@ the broker renumbers nothing. a frame's `seq` is the sending end's, because
 that number is part of the nonce; a frame the broker renumbered couldn't be
 opened.
 
+no tls, noise on both hops instead (proposed `noise-xx-25519-aesgcm-sha256/v1`) =>
+[`research/noise-transport.md`](research/noise-transport.md)
+
 a surface that declares `none` is only reachable over a loopback tunnel,
 never through the hosted broker; the broker refuses to carry a `none` grant
 that arrives over the network.
