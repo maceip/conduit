@@ -49,6 +49,6 @@ not verified: the full extension in chrome. logic is tested against a mocked bro
 
 chromium and safari decided most of this. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
 
-## licence
+## license
 
 MIT or Apache-2.0, your pick. [`LICENSE`](LICENSE), [`LICENSE-APACHE`](LICENSE-APACHE)
