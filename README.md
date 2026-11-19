@@ -1,34 +1,34 @@
-# Conduit
+# conduit
 
 ![Conduit](docs/social-preview.jpg)
 
-Conduit is a protocol and reference implementation that lets a client (a CLI, an IDE or an agent) reach the state inside an app, over a tunnel the user can see and revoke. Most apps give third parties no way in. Apple runs over four hundred app extensions that most users never see listed.
+most apps have no seam a third party can use. apple ships 400+ app extensions and most users never see the list.
+
+conduit is that seam: a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
 
 ![The extension, the broker and the client](docs/diagrams/topology.svg)
 
-The client never touches the app's process, memory or permissions. It gets only what the user granted. See [`docs/architecture.md`](docs/architecture.md) and [`docs/protocol.md`](docs/protocol.md).
+more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md)
 
-## The protocol
+## the protocol
 
-An extension pairs once. It asks the broker for a code, the user approves the code on the broker's own page, and the extension gets a secret tied to the scopes the user approved.
+pair once => the extension asks the broker for a code, the user approves it on the broker's own page, the extension gets a 256-bit secret bound to exactly those scopes.
 
 ![Pairing an extension](docs/diagrams/pairing.svg)
 
-After that, both ends open a WebSocket to the broker and say hello. Each hello carries the end's public key and the last `seq` it saw, so a reconnecting end gets the frames it missed from the broker's ring of the last 256. The broker forwards sealed payloads without opening them and refuses anything outside the grant.
+then both ends open a websocket to the broker and say hello. hello carries a public key + the last `seq` seen; on reconnect the broker replays what you missed from a ring of the last 256 frames. payloads stay sealed end to end and the broker refuses anything outside the grant.
 
 ![A session](docs/diagrams/session.svg)
 
-## How it works
+## typed, scoped, schemed
 
-Each frame names a versioned reverse-DNS schema, such as `dev.conduit.mail.message/v1`. The broker refuses unknown frame types.
+- typed => every frame names a versioned reverse-dns schema, e.g. `dev.conduit.mail.message/v1`. unknown frame type: refused.
+- scoped => a surface offers scopes (`mail.compose.read`), the user grants a subset, the broker enforces it. out of grant: refused, with the missing scope named.
+- schemed => address is `conduit://<surface>/<channel>@v1`. seal is `p256-aes256gcm/v1` (ecdh p-256, hkdf-sha256, aes-256-gcm); the broker never opens it.
 
-A surface offers scopes like `mail.compose.read`, the user grants some, and the broker refuses anything outside the grant, naming the missing scope.
+rust in `crates/`, chromium + safari extensions in `clients/`, json schemas in `spec/`, app survey in `docs/research/`.
 
-Clients address channels as `conduit://<surface>/<channel>@v1`. Payloads are sealed end to end with `p256-aes256gcm/v1` (ECDH P-256, HKDF-SHA256, AES-256-GCM), so the broker never reads them.
-
-The Rust lives in `crates/`, the Chromium and Safari extensions in `clients/`, the JSON Schemas in `spec/`, and the app survey in `docs/research/`.
-
-## Running it
+## run it
 
 ```sh
 cargo test --workspace
@@ -37,18 +37,18 @@ node scripts/browser-test.mjs       # sealing, in real Chromium
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
 ```
 
-## Status
+## status
 
-Built and tested: the protocol, the broker, the client library, the Safari native host, both extensions and one surface, the browser tab. Rust and browser sealing produce identical ciphertext for a shared test vector.
+shipped + tested: protocol, broker, client lib, safari native host, both extensions, one surface (the browser tab). rust and browser sealing match byte for byte on a shared test vector.
 
-Not built: adapters for Mail, desktop apps or anything beyond the browser tab. Each app family needs its own.
+not built: adapters for mail, desktop apps, anything past the browser tab. each app family needs its own.
 
-Not verified: the full extension in Chrome. Its logic is tested against a mocked browser API, but nobody has watched a tunnel open in a real browser yet.
+not verified: the full extension in chrome. logic is tested against a mocked browser api; nobody has watched a tunnel open in a real browser yet.
 
-## Why the research came first
+## why research first
 
-Chromium kills an idle service worker after 30 seconds, so the near end pings every 20 and resumes by sequence number. Safari unloads background pages just as fast and can't hold a WebSocket to `127.0.0.1`, so a native host holds it instead. Sources are in [`extension-surfaces.md`](docs/research/extension-surfaces.md).
+the platforms pick the design. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
 
-## Licence
+## licence
 
-MIT or Apache-2.0, at your option. See [`LICENSE`](LICENSE) and [`LICENSE-APACHE`](LICENSE-APACHE).
+MIT or Apache-2.0, your pick. [`LICENSE`](LICENSE), [`LICENSE-APACHE`](LICENSE-APACHE)
