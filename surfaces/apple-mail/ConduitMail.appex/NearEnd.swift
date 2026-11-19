@@ -9,8 +9,8 @@
 //  and does the sealing.  This file speaks to it over a Unix socket, in
 //  plain JSON, one message at a time:
 //
-//      plugin  ->  {"op":"publish","schema":"dev.conduit.mail.message/v1","payload":{…}}
-//      near end ->  {"op":"status","surface":"…","agreed":true,"connected":true,"seq":12}
+//      plugin  ->  {"t":"publish","s":"dev.conduit.mail.message/v1","c":"messages","p":{…}}
+//      near end ->  {"t":"publish","s":"…","c":"…","seq":12,"p":{…}}
 //
 //  A message on that socket is a four-byte big-endian length, and then
 //  that many bytes of JSON.
@@ -19,6 +19,11 @@
 //  machine is not: the near end seals it under the key of the tunnel, and
 //  the broker never sees it open.  This file holds no key and opens no
 //  socket to the broker.
+//
+//  There is no second vocabulary: the messages on that socket are the
+//  frames of the tunnel.  And this file does not wait for the tunnel to
+//  be up — the near end holds what is published until there is a key to
+//  seal it under, and sends it then.
 //
 
 import Foundation
@@ -39,17 +44,18 @@ final class NearEnd: @unchecked Sendable {
     /// The bytes that have come in but do not make a message yet.
     private var incoming = Data()
 
-    /// Whether the two ends have agreed their keys.
+    /// Whether the tunnel is up.
     ///
-    /// The near end cannot seal anything until they have, so nothing is
-    /// published before this is true.
-    private var agreed = false
+    /// The near end says so with the welcome frame.  Nothing waits for
+    /// it: the near end holds what is published until there is a key to
+    /// seal it under, and sends it then.
+    private var up = false
 
     /// The last thing the near end complained about.
     private var complaint: String?
 
-    /// How long a publish waits for the tunnel to agree, in seconds.
-    private let agreementTimeout: TimeInterval
+    /// The channel this plugin publishes on.
+    private let channel: String
 
     /// The socket of the near end, from wherever the user put it.
     ///
@@ -71,19 +77,18 @@ final class NearEnd: @unchecked Sendable {
     ///
     /// - Parameters:
     ///   - socketPath: the path of the socket of the near end.
-    ///   - agreementTimeout: how long a publish waits for the tunnel to
-    ///     agree its keys, in seconds.
+    ///   - channel: the channel this plugin publishes on.
     init(socketPath: String = NearEnd.defaultSocketPath(),
-         agreementTimeout: TimeInterval = 10) {
+         channel: String = "messages") {
         self.socketPath = socketPath
-        self.agreementTimeout = agreementTimeout
+        self.channel = channel
     }
 
-    /// Whether the two ends have agreed their keys.
-    var isAgreed: Bool {
+    /// Whether the tunnel is up.
+    var isUp: Bool {
         lock.lock()
         defer { lock.unlock() }
-        return agreed
+        return up
     }
 
     /// The last thing the near end complained about.
@@ -154,47 +159,34 @@ final class NearEnd: @unchecked Sendable {
 
     /// Publish what the app knows.
     ///
-    /// The near end cannot seal anything until the two ends have agreed
-    /// their keys, and a publish before that is refused.  So the publish
-    /// waits for the tunnel to agree, with a timeout.
+    /// The frame is the frame of the tunnel, with a plaintext payload: the
+    /// near end seals it, and the broker never sees it open.  The publish
+    /// does not wait for the tunnel to be up; the near end holds it until
+    /// there is a key to seal it under.
     ///
     /// - Parameters:
     ///   - schema: the schema of the payload.
     ///   - payload: the payload, as JSON.
     func publish(schema: String, payload: [String: Any]) throws {
         try open()
-        guard try waitUntilAgreed() else {
-            throw Failure.notAgreed
-        }
-        try send(["op": "publish", "schema": schema, "payload": payload])
+        try send(["t": "publish", "s": schema, "c": channel, "seq": 0, "p": payload])
     }
 
-    /// Ask how the tunnel is.
-    func status() throws {
+    /// Say where the broker is.
+    ///
+    /// - Parameters:
+    ///   - broker: the address of the broker.
+    ///   - secret: the secret of the grant.
+    ///   - instance: the instance of the tunnel.
+    func connect(broker: String, secret: String, instance: String) throws {
         try open()
-        try send(["op": "status"])
-    }
-
-    /// Wait until the tunnel has a key.
-    ///
-    /// The two ends agree their keys when they have said hello to each
-    /// other, and that takes a moment.  The near end answers a status with
-    /// the state of the tunnel, so the question is asked again and again
-    /// until the answer is yes, or until the wait is over.
-    ///
-    /// - Parameter timeout: how long to wait, in seconds.
-    /// - Returns: whether the tunnel agreed.
-    @discardableResult
-    func waitUntilAgreed(timeout: TimeInterval? = nil) throws -> Bool {
-        let deadline = Date().addingTimeInterval(timeout ?? agreementTimeout)
-        while Date() < deadline {
-            if isAgreed {
-                return true
-            }
-            try send(["op": "status"])
-            Thread.sleep(forTimeInterval: 0.05)
-        }
-        return isAgreed
+        try send([
+            "t": "connect",
+            "s": "",
+            "c": channel,
+            "seq": 0,
+            "p": ["broker": broker, "secret": secret, "instance": instance],
+        ])
     }
 
     /// Say something to the near end: a length, then the bytes.
@@ -282,13 +274,13 @@ final class NearEnd: @unchecked Sendable {
     private func note(_ message: [String: Any]) {
         lock.lock()
         defer { lock.unlock() }
-        switch message["op"] as? String {
-        case "status":
-            if (message["agreed"] as? Bool) == true {
-                agreed = true
-            }
+        switch message["t"] as? String {
+        case "welcome":
+            // The broker welcomed the near end: the tunnel is up.
+            up = true
         case "error":
-            complaint = message["message"] as? String
+            let payload = message["p"] as? [String: Any]
+            complaint = payload?["message"] as? String
         default:
             break
         }
@@ -306,8 +298,6 @@ final class NearEnd: @unchecked Sendable {
         case notOpen
         /// The message could not be written.
         case writeFailed(Int32)
-        /// The tunnel did not agree its keys in time.
-        case notAgreed
 
         var description: String {
             switch self {
@@ -321,8 +311,6 @@ final class NearEnd: @unchecked Sendable {
                 return "the socket to the near end is not open"
             case .writeFailed(let code):
                 return "the message could not be written (\(code))"
-            case .notAgreed:
-                return "the near end did not agree the keys of the tunnel"
             }
         }
     }

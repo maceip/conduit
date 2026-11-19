@@ -6,8 +6,8 @@
  * and does the sealing.  This file speaks to it over a Unix socket, in
  * plain JSON, one message at a time:
  *
- *     plugin  ->  {"op":"publish","schema":"dev.conduit.wordpress.post/v1","payload":{...}}
- *     near end ->  {"op":"status","surface":"...","agreed":true,"connected":true,"seq":12}
+ *     plugin  ->  {"t":"publish","s":"dev.conduit.wordpress.post/v1","c":"posts","p":{...}}
+ *     near end ->  {"t":"publish","s":"...","c":"...","seq":12,"p":{...}}
  *
  * A message on that socket is a four-byte big-endian length, and then
  * that many bytes of JSON.
@@ -16,6 +16,11 @@
  * machine is not: the near end seals it under the key of the tunnel, and
  * the broker never sees it open.  This file holds no key and opens no
  * socket to the broker.
+ *
+ * There is no second vocabulary: the messages on that socket are the
+ * frames of the tunnel.  And this file does not wait for the tunnel to
+ * be up -- the near end holds what is published until there is a key to
+ * seal it under, and sends it then.
  *
  * @package Conduit
  */
@@ -33,11 +38,11 @@ class Conduit_NearEnd
     private $socket_path;
 
     /**
-     * How long a publish waits for the tunnel to agree, in seconds.
+     * The channel this plugin publishes on.
      *
-     * @var float
+     * @var string
      */
-    private $timeout;
+    private $channel;
 
     /**
      * The stream of the socket, or null when it is not open.
@@ -47,14 +52,15 @@ class Conduit_NearEnd
     private $stream = null;
 
     /**
-     * Whether the two ends have agreed their keys.
+     * Whether the tunnel is up.
      *
-     * The near end cannot seal anything until they have, so nothing is
-     * published before this is true.
+     * The near end says so with the welcome frame.  Nothing waits for
+     * it: the near end holds what is published until there is a key to
+     * seal it under, and sends it then.
      *
      * @var bool
      */
-    private $agreed = false;
+    private $up = false;
 
     /**
      * The last thing the near end complained about.
@@ -67,15 +73,15 @@ class Conduit_NearEnd
      * A client of the near end.
      *
      * @param string|null $socket_path the path of the socket; the default when it is null.
-     * @param float       $timeout     how long a publish waits for the tunnel to agree, in seconds.
+     * @param string      $channel     the channel this plugin publishes on.
      */
-    public function __construct($socket_path = null, $timeout = 10.0)
+    public function __construct($socket_path = null, $channel = 'posts')
     {
         if ($socket_path === null || $socket_path === '') {
             $socket_path = self::default_socket_path();
         }
         $this->socket_path = $socket_path;
-        $this->timeout = (float) $timeout;
+        $this->channel = (string) $channel;
     }
 
     /**
@@ -102,13 +108,13 @@ class Conduit_NearEnd
     }
 
     /**
-     * Whether the two ends have agreed their keys.
+     * Whether the tunnel is up.
      *
      * @return bool
      */
-    public function agreed()
+    public function up()
     {
-        return $this->agreed;
+        return $this->up;
     }
 
     /**
@@ -165,65 +171,47 @@ class Conduit_NearEnd
     /**
      * Publish what the app knows.
      *
-     * The near end cannot seal anything until the two ends have agreed
-     * their keys, and a publish before that is refused.  So the publish
-     * waits for the tunnel to agree, with a timeout.
+     * The frame is the frame of the tunnel, with a plaintext payload: the
+     * near end seals it, and the broker never sees it open.  The publish
+     * does not wait for the tunnel to be up; the near end holds it until
+     * there is a key to seal it under.
      *
      * @param string $schema  The schema of the payload.
      * @param array  $payload The payload, as JSON.
-     *
-     * @throws RuntimeException When the tunnel does not agree in time.
      */
     public function publish($schema, array $payload)
     {
         $this->open();
-        if (!$this->wait_until_agreed()) {
-            throw new RuntimeException('the near end did not agree the keys of the tunnel');
-        }
         $this->send(array(
-            'op'      => 'publish',
-            'schema'  => $schema,
-            'payload' => $payload,
+            't'   => 'publish',
+            's'   => $schema,
+            'c'   => $this->channel,
+            'seq' => 0,
+            'p'   => $payload,
         ));
     }
 
     /**
-     * Ask how the tunnel is.
+     * Say where the broker is.
+     *
+     * @param string $broker   The address of the broker.
+     * @param string $secret   The secret of the grant.
+     * @param string $instance The instance of the tunnel.
      */
-    public function status()
+    public function connect_to($broker, $secret, $instance)
     {
         $this->open();
-        $this->send(array('op' => 'status'));
-    }
-
-    /**
-     * Wait until the tunnel has a key.
-     *
-     * The two ends agree their keys when they have said hello to each
-     * other, and that takes a moment.  The near end answers a status with
-     * the state of the tunnel, so the question is asked again and again
-     * until the answer is yes, or until the wait is over.
-     *
-     * @param float|null $timeout How long to wait, in seconds.
-     *
-     * @return bool Whether the tunnel agreed.
-     */
-    public function wait_until_agreed($timeout = null)
-    {
-        $wait = $timeout === null ? $this->timeout : (float) $timeout;
-        $deadline = microtime(true) + $wait;
-        while (microtime(true) < $deadline) {
-            if ($this->agreed) {
-                return true;
-            }
-            $this->status();
-            $message = $this->receive();
-            if (is_array($message)) {
-                $this->note($message);
-            }
-            usleep(50000);
-        }
-        return $this->agreed;
+        $this->send(array(
+            't'   => 'connect',
+            's'   => '',
+            'c'   => $this->channel,
+            'seq' => 0,
+            'p'   => array(
+                'broker'   => $broker,
+                'secret'   => $secret,
+                'instance' => $instance,
+            ),
+        ));
     }
 
     /**
@@ -313,12 +301,14 @@ class Conduit_NearEnd
      */
     private function note(array $message)
     {
-        if (isset($message['op']) && $message['op'] === 'status' && !empty($message['agreed'])) {
-            $this->agreed = true;
+        if (isset($message['t']) && $message['t'] === 'welcome') {
+            // The broker welcomed the near end: the tunnel is up.
+            $this->up = true;
         }
-        if (isset($message['op']) && $message['op'] === 'error') {
-            $this->last_error = isset($message['message'])
-                ? (string) $message['message']
+        if (isset($message['t']) && $message['t'] === 'error') {
+            $payload = isset($message['p']) && is_array($message['p']) ? $message['p'] : array();
+            $this->last_error = isset($payload['message'])
+                ? (string) $payload['message']
                 : 'the near end refused the message';
         }
     }

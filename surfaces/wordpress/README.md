@@ -33,17 +33,14 @@ The plugin publishes in plain JSON to the near end.  It holds no key, it
 opens no socket to the broker, and it seals nothing: the near end does the
 sealing, and the broker only ever sees the sealed form.
 
-Before the first publish it waits for the tunnel to agree its keys,
-because the near end cannot seal anything until the two ends have met.
-It asks `{"op":"status"}` and waits for `{"op":"status",…,"agreed":true}`,
-for up to ten seconds; a publish that is sent before that is refused with
-`{"op":"error"}`.  A site that would rather answer its visitors quickly
-than wait for a tunnel can shorten the wait with the
-`conduit_surface_timeout` filter:
+The publish is a frame of the tunnel, with a plaintext payload:
+`{"t":"publish","s":"dev.conduit.wordpress.post/v1","c":"posts","p":{…}}`.
+There is no second vocabulary on that socket.
 
-```php
-add_filter( 'conduit_surface_timeout', fn() => 2 );
-```
+The plugin does not wait for the tunnel to agree its keys.  The near end
+holds what is published until the two ends have met, and sends it then;
+the waiting happens once, in the near end.  The near end says the tunnel
+is up with the welcome frame, and complains with an error frame.
 
 ## What the user has to do
 

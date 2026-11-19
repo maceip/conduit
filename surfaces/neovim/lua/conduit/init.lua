@@ -11,8 +11,8 @@
 -- The protocol is one JSON object per message: a four-byte big-endian
 -- length, and then that many bytes of JSON.
 --
---     plugin  ->  {"op":"publish","schema":"dev.conduit.neovim.buffer/v1","payload":{...}}
---     near end ->  {"op":"status","surface":"...","agreed":true,"connected":true,"seq":12}
+--     plugin  ->  {"t":"publish","s":"dev.conduit.neovim.buffer/v1","c":"buffer","p":{...}}
+--     near end ->  {"t":"publish","s":"...","c":"...","seq":12,"p":{...}}
 
 local M = {}
 
@@ -22,8 +22,8 @@ M.BUFFER_SCHEMA = "dev.conduit.neovim.buffer/v1"
 --- Where the near end is, when nobody says otherwise.
 M.DEFAULT_SOCKET = "/tmp/conduit-neovim.sock"
 
---- How long a publish waits for the tunnel to agree, in milliseconds.
-M.AGREEMENT_TIMEOUT = 10000
+--- The channel this plugin publishes on.
+M.CHANNEL = "buffer"
 
 --- How long between two publishes of the same buffer, in milliseconds.
 M.THROTTLE = 1000
@@ -39,18 +39,10 @@ local connecting = false
 --- The bytes that have come in but do not make a message yet.
 local incoming = ""
 
---- Whether the two ends have agreed their keys.  The near end cannot seal
---- anything until they have, so nothing is published before this is true.
-local agreed = false
-
---- The publishes that are waiting for the tunnel to agree.
-local pending = {}
-
---- The timer that gives up on the tunnel.
-local wait_timer = nil
-
---- The timer that asks how the tunnel is.
-local status_timer = nil
+--- Whether the tunnel is up.  The near end says so with the welcome
+--- frame.  Nothing waits for it: the near end holds what is published
+--- until there is a key to seal it under, and sends it then.
+local up = false
 
 --- When the buffer was published last, in milliseconds.
 local last_publish = 0
@@ -127,81 +119,13 @@ local function take_messages()
   return messages
 end
 
---- Send the publishes that were waiting for the tunnel.
-local function flush()
-  if #pending == 0 then
-    return
-  end
-  local queue = pending
-  pending = {}
-  for _, item in ipairs(queue) do
-    send({ op = "publish", schema = item.schema, payload = item.payload })
-  end
-end
-
---- Stop waiting for the tunnel to agree.
-local function stop_waiting()
-  if wait_timer ~= nil then
-    wait_timer:stop()
-    wait_timer:close()
-    wait_timer = nil
-  end
-end
-
---- Stop asking how the tunnel is.
-local function stop_asking()
-  if status_timer ~= nil then
-    status_timer:stop()
-    status_timer:close()
-    status_timer = nil
-  end
-end
-
---- Wait for the tunnel to agree, and give up after the timeout.
-local function start_waiting()
-  if wait_timer ~= nil then
-    return
-  end
-  wait_timer = uv.new_timer()
-  wait_timer:start(M.AGREEMENT_TIMEOUT, 0, function()
-    vim.schedule(function()
-      stop_waiting()
-      stop_asking()
-      if #pending > 0 then
-        complain("the near end did not agree the keys of the tunnel; "
-          .. #pending .. " publishes were dropped")
-        pending = {}
-      end
-    end)
-  end)
-end
-
---- Ask whether the tunnel has a key, again and again.
-local function start_asking()
-  if status_timer ~= nil then
-    return
-  end
-  status_timer = uv.new_timer()
-  status_timer:start(0, 100, function()
-    vim.schedule(function()
-      if pipe ~= nil then
-        send({ op = "status" })
-      end
-    end)
-  end)
-end
 
 --- Remember what the near end said.
 local function note(message)
-  if message.op == "status" then
-    if message.agreed == true then
-      agreed = true
-      stop_asking()
-      stop_waiting()
-      flush()
-    end
-  elseif message.op == "error" then
-    complain("the near end refused: " .. tostring(message.message))
+  if message.t == "welcome" then
+    up = true
+  elseif message.t == "error" then
+    complain("the near end refused: " .. tostring(message.p and message.p.message))
   end
   for _, handler in ipairs(handlers) do
     vim.schedule(function()
@@ -276,13 +200,7 @@ end
 --- @return boolean whether the publish was sent
 function M.publish(schema, payload)
   connect()
-  if not agreed then
-    table.insert(pending, { schema = schema, payload = payload })
-    start_waiting()
-    start_asking()
-    return false
-  end
-  return send({ op = "publish", schema = schema, payload = payload })
+  return send({ t = "publish", s = schema, c = M.CHANNEL, seq = 0, p = payload })
 end
 
 --- What is said about the buffer in front of the user.
