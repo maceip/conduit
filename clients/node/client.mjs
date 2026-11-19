@@ -38,6 +38,8 @@ export async function connect(options) {
   let sequence = 0;
   let tunnel = null;
   let peerPrefix = null;
+  // The frames that came before the keys were agreed.
+  const pending = [];
 
   const nextSequence = () => {
     sequence += 1;
@@ -83,8 +85,34 @@ export async function connect(options) {
   const events = [];
   let onFrame = null;
 
-  socket.addEventListener("message", async (message) => {
-    const frame = JSON.parse(message.data);
+  // The frames are handled one at a time, in the order they came.
+  //
+  // The handler is asynchronous — agreeing the keys of the tunnel is a
+  // WebCrypto operation — and the browser does not wait for it.  So a
+  // frame that arrives right after the hello would be handled before
+  // the hello was, and there would be no key to open it with.  The
+  // queue makes the order the order of the tunnel.
+  const queue = [];
+  let working = false;
+
+  socket.addEventListener("message", (message) => {
+    queue.push(message.data);
+    if (!working) {
+      working = true;
+      drain();
+    }
+  });
+
+  async function drain() {
+    while (queue.length) {
+      const data = queue.shift();
+      await handle(data);
+    }
+    working = false;
+  }
+
+  async function handle(data) {
+    const frame = JSON.parse(data);
     if (frame.t === "welcome") {
       if (onReady) {
         onReady();
@@ -104,6 +132,10 @@ export async function connect(options) {
       const shared = await agree(keys.privateKey, fromBase64Url(hello.crypto.public));
       tunnel = shared;
       peerPrefix = fromBase64Url(hello.crypto.prefix);
+      // The frames that came before are opened now.
+      for (const early of pending.splice(0)) {
+        await handle(JSON.stringify(early));
+      }
       socket.send(
         JSON.stringify({
           t: "subscribe",
@@ -116,6 +148,13 @@ export async function connect(options) {
       if (onFrame) {
         onFrame({ kind: "agreed" });
       }
+      return;
+    }
+    if (frame.t === "publish" && !tunnel) {
+      // The keys are not agreed yet.  The frame is kept, and opened
+      // when they are: dropping it would lose the first thing the
+      // extension said.
+      pending.push(frame);
       return;
     }
     if (frame.t === "publish" && tunnel) {
@@ -145,7 +184,7 @@ export async function connect(options) {
     if (onFrame) {
       onFrame({ kind: frame.t, frame });
     }
-  });
+  }
 
   await ready;
 

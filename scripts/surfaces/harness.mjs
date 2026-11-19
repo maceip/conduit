@@ -271,8 +271,17 @@ export async function withNativeSurface(surface, body) {
   const nearEnd = spawn(nearEndBinary(), ["--native", configuration], {
     stdio: ["pipe", "pipe", "pipe"],
   });
+  nearEnd.stderr.on("data", (chunk) => {
+    process.stderr.write(`[near end] ${chunk}`);
+  });
   const nearEndErrors = [];
-  nearEnd.stderr.on("data", (chunk) => nearEndErrors.push(chunk.toString()));
+  nearEnd.stderr.on("data", (chunk) => {
+    const text = chunk.toString();
+    nearEndErrors.push(text);
+    if (process.env.CONDUIT_CHECK_VERBOSE) {
+      process.stderr.write(`[near end] ${text}`);
+    }
+  });
 
   try {
     const native = nativePort(nearEnd);

@@ -596,11 +596,7 @@ async fn serve_plugin(
         };
         let message: FromPlugin = match serde_json::from_slice(&body) {
             Ok(message) => message,
-            Err(error) => {
-                eprintln!(
-                    "DEBUG unreadable message: {} ({error})",
-                    String::from_utf8_lossy(&body)
-                );
+            Err(_) => {
                 let error = ToPlugin::Error {
                     message: "that was not a message the near end knows".to_string(),
                 };

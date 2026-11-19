@@ -159,7 +159,16 @@ async fn the_near_end_carries_a_surface_from_the_plugin_to_the_client() {
         .await
         .expect("the subscription goes");
 
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Wait until the two ends have agreed their keys.  The near end
+    // says so in its status, and the near end cannot seal anything
+    // before that: a guess with a sleep is a guess.
+    write_message(&mut plugin, r#"{"op":"status"}"#).await;
+    loop {
+        let message = read_message(&mut plugin).await;
+        if message["op"] == "status" && message["agreed"] == true {
+            break;
+        }
+    }
 
     // The plugin publishes what the app knows.  The near end seals it.
     write_message(

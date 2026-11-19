@@ -162,6 +162,8 @@ export function createNearEnd(surface, options = {}) {
     /* The native host, when there is one: it holds the socket, the keys
      * and the sealing, and this end is only the surface. */
     native: null,
+    /* The frames that came before the keys were agreed. */
+    early: [],
   };
 
   /* Read the last sequence number we saw, so that a reconnect can ask
@@ -278,7 +280,29 @@ export function createNearEnd(surface, options = {}) {
       toExtension: shared.toExtension,
       toClient: shared.toClient,
     };
+    /* The frames that came before the keys were agreed are opened now,
+     * in the order they came. */
+    for (const early of state.early.splice(0)) {
+      await openEarly(early);
+    }
     return true;
+  }
+
+  /* Open a frame that arrived before the keys were agreed. */
+  async function openEarly(frame) {
+    if (!state.tunnel || !frame.p) {
+      return;
+    }
+    const opened = await openPayload(
+      state.tunnel.toExtension,
+      state.peer.prefix,
+      frame.seq,
+      fromBase64Url(frame.p),
+    );
+    if (!opened) {
+      return;
+    }
+    await publishState(frame.s);
   }
 
   /* Keep the connection alive, and tell the broker we are here. */
@@ -356,10 +380,36 @@ export function createNearEnd(surface, options = {}) {
       startPinging();
     };
 
-    socket.onmessage = async (event) => {
+    /* The frames are handled one at a time, in the order they came.
+     *
+     * The handler is asynchronous — agreeing the keys of the tunnel is
+     * a WebCrypto operation — and the browser does not wait for it.  A
+     * frame that arrived right after the hello would be handled before
+     * the hello was, and there would be no key to open it with.  The
+     * queue makes the order the order of the tunnel. */
+    const queue = [];
+    let working = false;
+
+    socket.onmessage = (event) => {
+      queue.push(event.data);
+      if (!working) {
+        working = true;
+        drain();
+      }
+    };
+
+    async function drain() {
+      while (queue.length) {
+        const data = queue.shift();
+        await handle(data);
+      }
+      working = false;
+    }
+
+    async function handle(data) {
       let frame;
       try {
-        frame = JSON.parse(event.data);
+        frame = JSON.parse(data);
       } catch (error) {
         return;
       }
@@ -372,6 +422,13 @@ export function createNearEnd(surface, options = {}) {
       }
       if (frame.t === "ping") {
         send({ t: "pong", s: "dev.conduit.pong/v1", c: surface.channel, seq: nextSequence() });
+        return;
+      }
+      if (frame.t === "publish" && frame.p && !state.tunnel) {
+        /* The keys are not agreed yet.  The frame is kept, and opened
+         * when they are: dropping it would lose the first thing the
+         * other end said. */
+        state.early.push(frame);
         return;
       }
       if (frame.t === "publish" && frame.p && state.tunnel) {
@@ -392,7 +449,7 @@ export function createNearEnd(surface, options = {}) {
          * surface reads right now, so the first frame is not a silence. */
         await publishState();
       }
-    };
+    }
 
     socket.onclose = () => {
       stopPinging();
