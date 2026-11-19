@@ -8,7 +8,7 @@ conduit is a protocol + reference impl that lets a client (cli, ide, agent) reac
 
 ![The extension, the broker and the client](docs/diagrams/topology.svg)
 
-more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md)
+more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md), [`docs/rearchitecture.md`](docs/rearchitecture.md)
 
 ## the protocol
 
