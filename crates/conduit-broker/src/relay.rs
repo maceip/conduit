@@ -252,89 +252,80 @@ fn scope_denied(scope: &Scope, what: &str) -> String {
     )
 }
 
-/// Carry the extension's end of a tunnel.
-pub async fn serve_extension(
-    mut socket: WebSocket,
-    tunnel: Tunnel,
-    mut for_extension: mpsc::Receiver<Frame>,
-) {
-    let mut closing = tunnel.closing();
-    if tunnel.is_closed() {
-        return;
-    }
-    loop {
-        tokio::select! {
-            _ = closing.changed() => break,
-            message = socket.recv() => {
-                let Some(Ok(message)) = message else { break };
-                match message {
-                    Message::Text(text) => {
-                        if !tunnel.admit() {
-                            continue;
-                        }
-                        let frame: Frame = match serde_json::from_str(&text) {
-                            Ok(frame) => frame,
-                            Err(_) => {
-                                let refusal = failure_frame(&conduit_protocol::Failure::Malformed(
-                                    "not a frame".to_string(),
-                                ));
-                                if socket.send(Message::Text(refusal.into())).await.is_err() {
-                                    break;
-                                }
-                                continue;
-                            }
-                        };
-                        match frame.kind {
-                            FrameType::Ping => {
-                                if socket.send(Message::Text(ping_reply().into())).await.is_err() {
-                                    break;
-                                }
-                                continue;
-                            }
-                            FrameType::Publish => {
-                                if let Some(scope) = tunnel.denies(verb::READ) {
-                                    let refusal = scope_denied(&scope, "the extension may not publish");
-                                    if socket.send(Message::Text(refusal.into())).await.is_err() {
-                                        break;
-                                    }
-                                    continue;
-                                }
-                            }
-                            _ => {}
-                        }
-                        tunnel.remember_from_extension(&frame).await;
-                        // No client attached and the buffer full => the
-                        // frame is dropped; it would be sealed for nobody.
-                        let _ = tunnel.to_client.try_send(frame);
-                    }
-                    Message::Close(_) => break,
-                    _ => {}
-                }
-            }
-            frame = for_extension.recv() => {
-                let Some(frame) = frame else { break };
-                let text = serde_json::to_string(&frame).unwrap_or_default();
-                if socket.send(Message::Text(text.into())).await.is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    tunnel.close();
-    let _ = socket.send(Message::Close(None)).await;
+/// Which end of a tunnel a frame came from.
+///
+/// The broker's rules are the same for both ends — a frame is refused
+/// when the grant does not cover it, and the same frames are answered
+/// the same way — and the only difference is which verb a frame needs.
+/// So there is one loop, and this says which end it is carrying.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    /// The extension: the side that holds the key and publishes what
+    /// the app knows.
+    Extension,
+    /// The client: the side that reads the surface and calls it.
+    Client,
 }
 
-/// Carry the client's end of a tunnel; hands the client's receiver
-/// back when the client leaves.
-pub async fn serve_client(
+impl End {
+    /// The verb a publish from this end needs.
+    ///
+    /// The extension publishes what the app knows, which is a read of
+    /// the app; the client publishes what it wants the app to do, which
+    /// is a write of it.
+    fn publish_verb(&self) -> &'static str {
+        match self {
+            End::Extension => verb::READ,
+            End::Client => verb::WRITE,
+        }
+    }
+
+    /// The name of this end, for a refusal.
+    fn name(&self) -> &'static str {
+        match self {
+            End::Extension => "the extension",
+            End::Client => "the client",
+        }
+    }
+
+    /// The refusal of a frame this end may not send, if there is one.
+    fn refusal(&self, tunnel: &Tunnel, frame: &Frame) -> Option<String> {
+        match frame.kind {
+            FrameType::Publish => tunnel
+                .denies(self.publish_verb())
+                .map(|scope| scope_denied(&scope, &format!("{} may not publish", self.name()))),
+            FrameType::Call => tunnel
+                .denies(verb::CALL)
+                .map(|scope| scope_denied(&scope, &format!("{} may not call", self.name()))),
+            // The connect frame belongs to the hop between a plugin and
+            // the near end.  It never goes near the tunnel, and the
+            // broker says so.
+            FrameType::Connect => Some(error_frame(
+                ErrorCode::UnknownType,
+                "the connect frame does not go on the tunnel",
+                None,
+            )),
+            _ => None,
+        }
+    }
+}
+
+/// Carry one end of a tunnel.
+///
+/// The extension's end and the client's end are carried the same way:
+/// the frames that come in are checked against the grant, and the frames
+/// that come back are written out.  The receiver is handed back when the
+/// end leaves, so that the other end may take it over.
+pub async fn serve_end(
     mut socket: WebSocket,
     tunnel: Tunnel,
-    mut for_client: mpsc::Receiver<Frame>,
+    mut for_me: mpsc::Receiver<Frame>,
+    end: End,
 ) -> mpsc::Receiver<Frame> {
     let mut closing = tunnel.closing();
     if tunnel.is_closed() {
         let _ = socket.send(Message::Close(None)).await;
-        return for_client;
+        return for_me;
     }
     loop {
         tokio::select! {
@@ -358,69 +349,70 @@ pub async fn serve_client(
                                 continue;
                             }
                         };
-                        let refusal = match frame.kind {
-                            FrameType::Ping => {
-                                if socket.send(Message::Text(ping_reply().into())).await.is_err() {
+                        // A ping is answered here and nowhere else.
+                        if frame.kind == FrameType::Ping {
+                            if socket.send(Message::Text(ping_reply().into())).await.is_err() {
+                                break;
+                            }
+                            continue;
+                        }
+                        // The client's subscription is answered here: the
+                        // scopes it asks for must be in the grant.  The
+                        // extension does not subscribe: it publishes.
+                        if frame.kind == FrameType::Subscribe && end == End::Client {
+                            let wanted = scopes_of(&frame);
+                            if let Err(missing) = scopes_the_grant_allows(tunnel.grant(), &wanted) {
+                                let refusal = error_frame(
+                                    ErrorCode::ScopeDenied,
+                                    &format!(
+                                        "not granted: {}",
+                                        missing
+                                            .iter()
+                                            .map(|scope| scope.to_string())
+                                            .collect::<Vec<_>>()
+                                            .join(", ")
+                                    ),
+                                    missing.first().map(|scope| scope.to_string()),
+                                );
+                                if socket.send(Message::Text(refusal.into())).await.is_err() {
                                     break;
                                 }
                                 continue;
                             }
-                            FrameType::Subscribe => {
-                                let wanted = scopes_of(&frame);
-                                match scopes_the_grant_allows(tunnel.grant(), &wanted) {
-                                    Ok(()) => {
-                                        let reply = subscribed(&frame, &wanted);
-                                        let _ = tunnel.to_extension.try_send(frame);
-                                        if socket.send(Message::Text(reply.into())).await.is_err() {
-                                            break;
-                                        }
-                                        continue;
-                                    }
-                                    Err(missing) => Some(error_frame(
-                                        ErrorCode::ScopeDenied,
-                                        &format!(
-                                            "not granted: {}",
-                                            missing
-                                                .iter()
-                                                .map(|scope| scope.to_string())
-                                                .collect::<Vec<_>>()
-                                                .join(", ")
-                                        ),
-                                        missing.first().map(|scope| scope.to_string()),
-                                    )),
-                                }
+                            let reply = subscribed(&frame, &wanted);
+                            let _ = tunnel.to_extension.try_send(frame);
+                            if socket.send(Message::Text(reply.into())).await.is_err() {
+                                break;
                             }
-                            FrameType::Publish => tunnel
-                                .denies(verb::WRITE)
-                                .map(|scope| scope_denied(&scope, "the client may not publish")),
-                            FrameType::Call => tunnel
-                                .denies(verb::CALL)
-                                .map(|scope| scope_denied(&scope, "the client may not call")),
-                            // The connect frame belongs to the hop
-                            // between a plugin and the near end.  It
-                            // never goes near the tunnel, and the
-                            // broker says so.
-                            FrameType::Connect => Some(error_frame(
-                                ErrorCode::UnknownType,
-                                "the connect frame does not go on the tunnel",
-                                None,
-                            )),
-                            _ => None,
-                        };
-                        if let Some(refusal) = refusal {
+                            continue;
+                        }
+                        if let Some(refusal) = end.refusal(&tunnel, &frame) {
                             if socket.send(Message::Text(refusal.into())).await.is_err() {
                                 break;
                             }
                             continue;
                         }
-                        tunnel.remember_from_client(&frame).await;
-                        let _ = tunnel.to_extension.try_send(frame);
+                        match end {
+                            End::Extension => tunnel.remember_from_extension(&frame).await,
+                            End::Client => tunnel.remember_from_client(&frame).await,
+                        }
+                        // The other end is not attached and the buffer is
+                        // full => the frame is dropped; it would be sealed
+                        // for nobody.
+                        match end {
+                            End::Extension => {
+                                let _ = tunnel.to_client.try_send(frame);
+                            }
+                            End::Client => {
+                                let _ = tunnel.to_extension.try_send(frame);
+                            }
+                        }
                     }
                     Message::Close(_) => break,
                     _ => {}
                 }
             }
-            frame = for_client.recv() => {
+            frame = for_me.recv() => {
                 let Some(frame) = frame else { break };
                 let text = serde_json::to_string(&frame).unwrap_or_default();
                 if socket.send(Message::Text(text.into())).await.is_err() {
@@ -429,8 +421,14 @@ pub async fn serve_client(
             }
         }
     }
+    // The extension leaving is the end of the tunnel: there is nobody
+    // left to publish.  A client leaving is not: the extension stays,
+    // and the next client takes the tunnel over.
+    if end == End::Extension {
+        tunnel.close();
+    }
     let _ = socket.send(Message::Close(None)).await;
-    for_client
+    for_me
 }
 
 /// The answer to a subscription the grant covers.

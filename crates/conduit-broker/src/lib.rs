@@ -329,7 +329,7 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                 old.close();
             }
             welcome(&mut socket, &surface).await;
-            relay::serve_extension(socket, tunnel.clone(), receiver).await;
+            relay::serve_end(socket, tunnel.clone(), receiver, relay::End::Extension).await;
             let mut tunnels = state.tunnels.lock().await;
             if tunnels
                 .get(&surface)
@@ -379,7 +379,8 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                 let _ = socket.send(Message::Text(text.into())).await;
             }
             let _ = tunnel.to_extension.try_send(hello);
-            let receiver = relay::serve_client(socket, tunnel.clone(), receiver).await;
+            let receiver =
+                relay::serve_end(socket, tunnel.clone(), receiver, relay::End::Client).await;
             tunnel.give_back_for_client(receiver).await;
         }
         _ => {
