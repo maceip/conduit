@@ -376,7 +376,7 @@ pub struct ProtocolError {
     /// A human-readable message.
     pub message: String,
     /// The id of the frame the error answers.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[serde(rename = "ref", skip_serializing_if = "Option::is_none", default)]
     pub reference: Option<u64>,
     /// The scope that was denied, if the error is about a scope.
     #[serde(skip_serializing_if = "Option::is_none", default)]

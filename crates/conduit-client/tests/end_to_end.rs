@@ -21,10 +21,14 @@ async fn broker() -> String {
         .put_grant(Grant {
             surface: surface(),
             instance: "bootstrap".to_string(),
-            scopes: vec![Scope::new("mail.compose", conduit_protocol::verb::READ)],
+            scopes: vec![
+                Scope::new("mail.compose", conduit_protocol::verb::READ),
+                Scope::new("mail.compose", conduit_protocol::verb::WRITE),
+            ],
             schemes: vec![sealed::SCHEME.to_string()],
         })
         .await;
+    registry.put_token("token", vec![surface()]).await;
     let state = AppState {
         registry,
         tunnels: Arc::new(tokio::sync::Mutex::new(Default::default())),

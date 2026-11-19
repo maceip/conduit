@@ -66,7 +66,10 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/device/code", post(ask_for_a_code))
         .route("/v1/device/approve", post(approve_a_code))
         .route("/v1/device/secret", post(the_secret))
-        .route("/v1/device/approve-page", get(the_approval_page))
+        .route(
+            "/v1/device/approve-page",
+            get(the_approval_page).post(approve_from_the_page),
+        )
         .with_state(state)
 }
 
@@ -173,14 +176,14 @@ async fn the_approval_page(
     let body = match device {
         Some(device) => format!(
             "<h1>approve this extension</h1><p><strong>{}</strong> asks for these scopes:</p><ul>{}</ul><form method=\"post\" action=\"/v1/device/approve-page\"><input type=\"hidden\" name=\"code\" value=\"{}\"><button type=\"submit\">approve</button></form>",
-            device.surface,
+            escape(&device.surface.to_string()),
             device
                 .scopes
                 .iter()
-                .map(|scope| format!("<li>{}</li>", scope))
+                .map(|scope| format!("<li>{}</li>", escape(&scope.to_string())))
                 .collect::<Vec<_>>()
                 .join(""),
-            code
+            escape(&code)
         ),
         None => "<h1>no such code</h1><p>expired, or never issued.</p>".to_string(),
     };
@@ -191,6 +194,53 @@ async fn the_approval_page(
             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>approve</title></head><body>{body}</body></html>"
         ),
     )
+}
+
+/// The user presses approve on the page.
+///
+/// The page is a plain html form, so the code arrives form-encoded; the
+/// answer is a page the user can read, not a status for a script.
+async fn approve_from_the_page(
+    State(state): State<AppState>,
+    axum::Form(body): axum::Form<ApprovalRequest>,
+) -> impl axum::response::IntoResponse {
+    let (status, body) = match state.devices.approve(&body.code).await {
+        Some(device) => (
+            axum::http::StatusCode::OK,
+            format!(
+                "<h1>approved</h1><p><strong>{}</strong> can open its tunnel now. you can close this tab.</p>",
+                escape(&device.surface.to_string())
+            ),
+        ),
+        None => (
+            axum::http::StatusCode::NOT_FOUND,
+            "<h1>no such code</h1><p>expired, or never issued.</p>".to_string(),
+        ),
+    };
+    (
+        status,
+        [("content-type", "text/html; charset=utf-8")],
+        format!(
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>approve</title></head><body>{body}</body></html>"
+        ),
+    )
+}
+
+/// Text made safe for html: the scopes on the page come from whoever
+/// asked for the code.
+fn escape(text: &str) -> String {
+    let mut escaped = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(character),
+        }
+    }
+    escaped
 }
 
 /// The health of the broker.
@@ -207,11 +257,22 @@ async fn tunnel(
     upgrade.on_upgrade(move |socket| handle(socket, state, params))
 }
 
+/// Send an error frame and give up on the socket.
+async fn refuse(socket: &mut WebSocket, code: ErrorCode, message: &str) {
+    let _ = socket
+        .send(Message::Text(error_frame(code, message, None).into()))
+        .await;
+    let _ = socket.send(Message::Close(None)).await;
+}
+
 /// Carry one end of a tunnel.
 async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
     let surface = match params.surface.as_deref().and_then(SchemaId::parse) {
         Some(surface) => surface,
-        None => return,
+        None => {
+            refuse(&mut socket, ErrorCode::SurfaceUnknown, "no surface named").await;
+            return;
+        }
     };
 
     // The first frame of an end is the frame that says who it is.
@@ -222,79 +283,108 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
 
     match params.role.as_str() {
         "extension" => {
-            // The secret is what the user approved; the bootstrap's
-            // own secret is there for the tests.
+            // The secret is what the user approved, and it carries the
+            // instance it was approved for; the bootstrap's own secret is
+            // there for the tests.
             let secret = params.secret.as_deref().unwrap_or_default();
-            let known = state.devices.surface_of(secret).await;
-            if known.is_none() && secret != state.extension_secret {
-                let _ = socket
-                    .send(Message::Text(
-                        error_frame(ErrorCode::Unauthorized, "not authorized").into(),
-                    ))
-                    .await;
-                return;
-            }
-            if let Some(surface_of_the_secret) = known {
-                if surface_of_the_secret != surface {
-                    let _ = socket
-                        .send(Message::Text(
-                            error_frame(
-                                ErrorCode::Unauthorized,
-                                "secret belongs to another surface",
-                            )
-                            .into(),
-                        ))
+            let instance = match state.devices.credential(secret).await {
+                Some((surface_of_the_secret, instance)) => {
+                    if surface_of_the_secret != surface {
+                        refuse(
+                            &mut socket,
+                            ErrorCode::Unauthorized,
+                            "secret belongs to another surface",
+                        )
                         .await;
+                        return;
+                    }
+                    instance
+                }
+                None if !state.extension_secret.is_empty() && secret == state.extension_secret => {
+                    params
+                        .instance
+                        .as_deref()
+                        .unwrap_or("bootstrap")
+                        .to_string()
+                }
+                None => {
+                    refuse(&mut socket, ErrorCode::Unauthorized, "not authorized").await;
                     return;
                 }
-            }
-            let instance = params.instance.as_deref().unwrap_or("bootstrap");
-            let grant = state.registry.grant_for(&surface, instance).await;
+            };
+            let grant = state.registry.grant_for(&surface, &instance).await;
             let tunnel = Tunnel::new(Arc::clone(&state.registry), grant);
-            state
+            tunnel.set_extension_hello(hello).await;
+            let Some(receiver) = tunnel.take_for_extension().await else {
+                return;
+            };
+            // A second extension for the same surface takes over; the
+            // tunnel it replaces closes, and its client with it.
+            if let Some(old) = state
                 .tunnels
                 .lock()
                 .await
-                .insert(surface.clone(), tunnel.clone());
-            let receiver = match tunnel.take_for_extension().await {
-                Some(receiver) => receiver,
-                None => return,
-            };
+                .insert(surface.clone(), tunnel.clone())
+            {
+                old.close();
+            }
             welcome(&mut socket, &surface).await;
-            let _ = tunnel.to_client.send(hello.clone()).await;
-            relay::serve_extension(socket, tunnel, receiver).await;
+            relay::serve_extension(socket, tunnel.clone(), receiver).await;
+            let mut tunnels = state.tunnels.lock().await;
+            if tunnels
+                .get(&surface)
+                .is_some_and(|current| current.same(&tunnel))
+            {
+                tunnels.remove(&surface);
+            }
         }
         "client" => {
-            let token = match params.token.as_deref() {
-                Some(token) => token.to_string(),
-                None => return,
-            };
-            let tunnel = state
-                .tunnels
-                .lock()
+            let token = params.token.as_deref().unwrap_or_default();
+            if !state
+                .registry
+                .surfaces_for_token(token)
                 .await
-                .get(&surface)
-                .cloned()
-                .unwrap_or_else(|| {
-                    Tunnel::new(
-                        Arc::clone(&state.registry),
-                        Grant {
-                            surface: surface.clone(),
-                            instance: "bootstrap".to_string(),
-                            scopes: Vec::new(),
-                            schemes: Vec::new(),
-                        },
-                    )
-                });
-            let receiver = match tunnel.take_for_client().await {
-                Some(receiver) => receiver,
-                None => return,
+                .contains(&surface)
+            {
+                refuse(
+                    &mut socket,
+                    ErrorCode::Unauthorized,
+                    "token does not cover that surface",
+                )
+                .await;
+                return;
+            }
+            let tunnel = state.tunnels.lock().await.get(&surface).cloned();
+            let Some(tunnel) = tunnel else {
+                refuse(
+                    &mut socket,
+                    ErrorCode::SurfaceUnknown,
+                    "no extension is connected for that surface",
+                )
+                .await;
+                return;
+            };
+            let Some(receiver) = tunnel.take_for_client().await else {
+                refuse(
+                    &mut socket,
+                    ErrorCode::Unauthorized,
+                    "another client holds this tunnel",
+                )
+                .await;
+                return;
             };
             welcome(&mut socket, &surface).await;
-            let _ = tunnel.to_extension.send(hello.clone()).await;
-            relay::serve_client(socket, tunnel, receiver, token).await;
+            if let Some(their_hello) = tunnel.extension_hello().await {
+                let text = serde_json::to_string(&their_hello).unwrap_or_default();
+                let _ = socket.send(Message::Text(text.into())).await;
+            }
+            let _ = tunnel.to_extension.try_send(hello);
+            let receiver = relay::serve_client(socket, tunnel.clone(), receiver).await;
+            tunnel.give_back_for_client(receiver).await;
         }
-        _ => {}
+        _ => {
+            refuse(&mut socket, ErrorCode::Unauthorized, "no such role").await;
+        }
     }
 }
 
@@ -324,37 +414,39 @@ async fn welcome(socket: &mut WebSocket, surface: &SchemaId) {
         channel: "tunnel".to_string(),
         call: None,
         seq: 0,
-        payload: None,
+        payload: Some(serde_json::json!({ "surface": surface.to_string(), "seq": 0 }).to_string()),
     };
-    let mut frame = frame;
-    frame.channel = surface.to_string();
     let text = serde_json::to_string(&frame).unwrap_or_default();
     let _ = socket.send(Message::Text(text.into())).await;
 }
 
-/// The frame that says an error.
-fn error_frame(code: ErrorCode, message: &str) -> String {
+/// An error frame: the envelope of `dev.conduit.error/v1`, with the
+/// error as its payload. errors aren't sealed; the broker writes them.
+pub fn error_frame(code: ErrorCode, message: &str, scope: Option<String>) -> String {
     let error = ProtocolError {
         code,
         message: message.to_string(),
         reference: None,
-        scope: None,
+        scope,
     };
-    serde_json::to_string(&error).unwrap_or_else(|_| "{}".to_string())
+    serde_json::to_string(&Frame {
+        kind: FrameType::Error,
+        schema: SchemaId::new("dev.conduit.error", 1),
+        channel: "tunnel".to_string(),
+        call: None,
+        seq: 0,
+        payload: Some(serde_json::to_string(&error).unwrap_or_else(|_| "{}".to_string())),
+    })
+    .unwrap_or_else(|_| "{}".to_string())
 }
 
-/// The failure of a frame, as the code the wire carries.
+/// The failure of a frame, as an error frame.
 pub fn failure_frame(failure: &Failure) -> String {
-    let mut error = ProtocolError {
-        code: failure.code(),
-        message: failure.to_string(),
-        reference: None,
-        scope: None,
-    };
-    if let Some(scope) = failure.scope() {
-        error.scope = Some(scope.to_string());
-    }
-    serde_json::to_string(&error).unwrap_or_else(|_| "{}".to_string())
+    error_frame(
+        failure.code(),
+        &failure.to_string(),
+        failure.scope().map(|scope| scope.to_string()),
+    )
 }
 
 /// A ring of the frames of a tunnel, for resume.
