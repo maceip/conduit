@@ -50,8 +50,8 @@ jobs:
           cp -r spec _site/spec
           cp docs/social-preview-rounded.png _site/docs/
           # The links in the documents point at the markdown; the site
-          # serves the HTML.
-          find _site -name '*.html' -print0 | xargs -0 sed -i -e 's|\.md)|.html)|g'
+          # serves the HTML.  The links to the code point at GitHub.
+          python3 scripts/pages-links.py _site
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
