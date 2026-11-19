@@ -30,36 +30,61 @@ rust in `crates/`, chromium + safari extensions in `clients/`, json schemas in `
 
 ## the surfaces
 
-a surface is a module: an id, a channel, the schemas it may carry, the scopes it asks for, and a read. the tunnel machinery in `clients/shared/near-end.js` carries any surface and knows nothing about what it carries, so a new surface is a new module and not a new tunnel.
+a surface is a module: an id, a channel, the schemas it may carry, the scopes it asks for, and a read. the tunnel machinery carries any surface and knows nothing about what it carries, so a new surface is a new module and not a new tunnel.
 
 | surface | module | what it publishes |
 |---|---|---|
 | the browser tab | `clients/shared/surface-browser.js` | the url + title of the tab in front of the user |
 | the browser windows | `clients/shared/surface-windows.js` | the windows the browser has open, and how many tabs each holds |
 
-a surface never publishes a stand-in: when the read says there is nothing, nothing is published. the next surfaces are the ones the research names, one module each: mail compose, mail action, the finder sync extension, and the rest.
+a surface never publishes a stand-in: when the read says there is nothing, nothing is published.
+
+outside a browser, a surface is three parts: the app, the plugin inside it, and the **near end** — a process that holds the socket and does the sealing, because a plugin cannot be trusted with either. fifteen of them are here:
+
+| surface | the app | what it publishes |
+|---|---|---|
+| [`apple-mail`](surfaces/apple-mail) | apple mail | the message being composed, the message selected |
+| [`apple-shortcuts`](surfaces/apple-shortcuts) | apple shortcuts | what the owning app says about the state |
+| [`antigravity`](surfaces/antigravity) | google antigravity | the state of the surface, as an mcp tool |
+| [`discord`](surfaces/discord) | discord | the message of the channel |
+| [`figma`](surfaces/figma) | figma | the current selection |
+| [`home-assistant`](surfaces/home-assistant) | home assistant | the state of the entities the user listed |
+| [`mcp`](surfaces/mcp) | any mcp host | the state of the surface, as an mcp tool |
+| [`neovim`](surfaces/neovim) | neovim | the buffer in front of the user |
+| [`obsidian`](surfaces/obsidian) | obsidian | the note in front of the user |
+| [`safari`](surfaces/safari) | safari | the tab in front of the user |
+| [`slack`](surfaces/slack) | slack | the message of the channel |
+| [`stream-deck`](surfaces/stream-deck) | elgato stream deck | the key that was pressed |
+| [`thunderbird`](surfaces/thunderbird) | thunderbird | the message in front of the user |
+| [`vscode`](surfaces/vscode) | vs code | the tab in front of the user |
+| [`wordpress`](surfaces/wordpress) | wordpress | the site, and each post |
+
+what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). in short: eight of them are checked end to end here — a real broker, a real near end, the plugin's own code — and the ones whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
+
+whatsapp has no extension surface at all: everything third-party is server-side, so there is no whatsapp surface here, and the reason is in [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md).
 
 ## run it
 
 ```sh
 cargo test --workspace
-node --test clients/shared/*.test.js
 node --test clients/shared/*.test.js # the surfaces, and the sealing
 node scripts/browser-test.mjs       # sealing, in real Chromium
 scripts/e2e/run.sh                  # broker + extension in chromium + rust client, end to end
+node scripts/surfaces/run.mjs       # every surface, against a real broker
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
+cargo run -p conduit-near-end       # the near end: the socket, and the sealing
 node scripts/build-extension.mjs    # => target/extension/{chromium,safari}-mv3, load unpacked
 ```
 
 ## status
 
-shipped + tested: protocol, broker, client lib, safari native host, both extensions, two surfaces (the browser tab and the browser windows). rust and browser sealing match byte for byte on a shared test vector.
-
-not built: adapters for mail, desktop apps, anything past the browser. each app family needs its own; the plan is in [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md).
+shipped + tested: protocol, broker, client lib, the near end, both extensions, two surfaces in the browser extension, and fifteen surfaces outside it. rust and browser sealing match byte for byte on a shared test vector.
 
 verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
 
-not verified: safari. it can't be driven here; the safari build shares `background.js` and has not run in a browser.
+verified outside a browser: eight surfaces are checked here against a real broker and a real near end, with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
+
+not verified: safari itself, and the four surfaces whose runtime is not on this machine — apple mail, apple shortcuts, wordpress and neovim. their code is written and was never run.
 
 ## why research first
 

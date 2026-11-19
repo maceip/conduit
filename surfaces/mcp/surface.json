@@ -1,6 +1,12 @@
 {
   "id": "dev.conduit.mcp.state/v1",
   "channel": "mcp",
-  "schemas": ["dev.conduit.mcp.state/v1"],
-  "scopes": ["mcp.state.read", "mcp.state.write"]
+  "schemas": [
+    "dev.conduit.mcp.state/v1"
+  ],
+  "scopes": [
+    "mcp.state.read",
+    "mcp.state.write"
+  ],
+  "socket": "/tmp/conduit-mcp.sock"
 }

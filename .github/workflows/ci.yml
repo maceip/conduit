@@ -35,7 +35,7 @@ jobs:
 
       - name: The extension clients parse
         run: |
-          for file in clients/shared/*.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js scripts/build-extension.mjs scripts/e2e/run.mjs; do
+          for file in clients/shared/*.js clients/native/*.js clients/node/*.mjs clients/chromium-mv3/popup.js clients/safari-mv3/popup.js scripts/build-extension.mjs scripts/e2e/run.mjs scripts/surfaces/*.mjs; do
             node --check "$file"
             echo "ok $file"
           done
@@ -58,6 +58,33 @@ jobs:
               assert "background" in manifest, path
               print("ok", path)
           PY
+
+  surfaces:
+    name: the surfaces, against a real broker
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build the broker and the near end
+        run: cargo build -p conduit-broker -p conduit-near-end
+
+      - name: Every surface that has a check
+        run: node scripts/surfaces/run.mjs 2>&1 | tee target/surfaces.log
+
+      - name: The surfaces that have no check say so
+        run: |
+          echo "the surfaces that were not run:"
+          grep "^skip " target/surfaces.log || echo "none" 
 
   browser:
     name: the browser tests

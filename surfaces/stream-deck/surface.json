@@ -1,6 +1,11 @@
 {
   "id": "dev.conduit.streamdeck.keys/v1",
   "channel": "keys",
-  "schemas": ["dev.conduit.streamdeck.key/v1"],
-  "scopes": ["streamdeck.keys.read"]
+  "schemas": [
+    "dev.conduit.streamdeck.key/v1"
+  ],
+  "scopes": [
+    "streamdeck.keys.read"
+  ],
+  "socket": "/tmp/conduit-stream-deck.sock"
 }

@@ -98,6 +98,7 @@ the twenty apps with the most people able to install something into them. the or
 | **ACP** | Agent Client Protocol | lets an editor launch and drive an agent | listed | [ACP](https://agentclientprotocol.com/) |
 | **VS Code** | MCP servers from the marketplace | a server the agent calls | listed | [VS Code extensibility](https://code.visualstudio.com/features/extensibility) |
 | **Antigravity** | `agy acp` | the agent, driven from another editor | hidden | [Antigravity](https://antigravity.google/docs/ide/extensions) |
+| **Antigravity, the IDE itself** | plugins: `plugin.json`, skills, rules, hooks, MCP servers, loaded from `.agents/plugins/` or `~/.gemini/config/plugins/` | reusable skills, subagents, rules, lifecycle hooks, MCP servers | listed | [plugins](https://antigravity.google/docs/plugins), [build plugins](https://antigravity.google/docs/build-plugins) |
 | **Cursor, Claude Code, the Agent Plugins standard** | plugin directories with a marketplace | packaged agent: commands, agents, hooks, MCP servers | listed | [Agentdex on Cursor](https://agentdex.app/blog/cursor-ai-extensions/), [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview), [Agent Plugins](https://agent-plugins.org/) |
 
 ## secret surfaces: no installer at all
@@ -115,10 +116,24 @@ these are what the user meant by "it can just be like a secret API or anything".
 | **mitmproxy add-ons, Postman pre-request scripts, Wireshark Lua** | scripts inside a network tool | the tool's own loader | [mitmproxy](https://docs.mitmproxy.org/stable/addons-overview/), [Postman scripts](https://learning.postman.com/docs/tests-and-scripts/write-scripts/intro-to-scripts/), [Wireshark Lua](https://wiki.wireshark.org/Lua) |
 | **D-Bus, MPD, Audio Units, VST3** | interfaces inside the desktop | system bus, protocol, plugin host | [D-Bus](https://dbus.freedesktop.org/doc/dbus-tutorial.html), [MPD](https://www.musicpd.org/doc/html/protocol.html), [WWDC15 408](https://developer.apple.com/videos/play/wwdc2015/408/), [VST3](https://developer.steinberg.help/display/VST/Building+VST+Plug-ins) |
 
+## the apps with no extension surface
+
+the question worth asking is not only which apps have one.  some of the
+biggest apps have none at all, and it is worth saying so plainly rather
+than inventing a surface for them.
+
+| app | what is there | why it is not an extension surface | source |
+|---|---|---|---|
+| **WhatsApp** | the Business Platform's Cloud API and webhooks; Flow JSON a business publishes; WhatsApp Web is a web page | there is **nothing a user can install into WhatsApp**. everything third-party is server-side. a Flow is published by the business, not installed by the user. a browser extension that injects into WhatsApp Web is unofficial, and WhatsApp's terms forbid reverse engineering and third-party tools that function as the service. | [about the platform](https://developers.facebook.com/documentation/business-messaging/whatsapp/about-the-platform), [flows](https://developers.facebook.com/documentation/business-messaging/whatsapp/flows/guides/flowjson/), [terms of service](https://www.whatsapp.com/legal/terms-of-service) |
+| **Messages, Telegram, Signal** | bots and accounts on the server side | a bot is an application talking to the service, not an extension inside the app | [Telegram bots](https://core.telegram.org/bots) |
+
+so there is no WhatsApp surface in this project, and that is the finding, not a gap.  a WhatsApp surface would have to be a server-side integration: the same shape as the Slack and Discord surfaces, where the app is a remote one.
+
 ## what the catalogue says
 
 1. visible surfaces are all called "plugins"; invisible ones are all "extensions" or "integrations". the naming gives it away: an *extension* is something the OS registers and the user usually never sees; a *plugin* is something the app shows you.
 2. surfaces with no UI are the most useful and the least discoverable. a Finder Sync extension, a Spotlight importer, a local REST API: none needs a window => nobody built a UI for them, and a tunnel fits them.
 3. 2 constraints from the catalogue shape the transport. Figma plugins are short-lived + user-invoked => a Figma surface can't hold a socket; Chrome's worker dies after 30s => no browser surface can hold one either. so the socket lives outside the app, and the app pushes into it when it's awake.
 4. the growing surfaces are agent surfaces: MCP's extensions framework, ACP, agent plugin directories. the client side of this project is an agent far more often than a human.
-5. nothing in the catalogue ships a tunnel. every entry is in-process (a plugin), a local socket (a secret API), or a document protocol (MCP). this project fills the gap between "in-process" and "over the internet", with a user in the middle who can see and revoke it.
+5. the biggest apps are often the ones with no surface: WhatsApp has none at all, and its whole third-party story is server-side.  a surface is a thing the app *runs*, and WhatsApp runs nothing of yours.
+6. nothing in the catalogue ships a tunnel. every entry is in-process (a plugin), a local socket (a secret API), or a document protocol (MCP). this project fills the gap between "in-process" and "over the internet", with a user in the middle who can see and revoke it.

@@ -1,6 +1,11 @@
 {
   "id": "dev.conduit.slack.messages/v1",
   "channel": "messages",
-  "schemas": ["dev.conduit.slack.message/v1"],
-  "scopes": ["slack.messages.read"]
+  "schemas": [
+    "dev.conduit.slack.message/v1"
+  ],
+  "scopes": [
+    "slack.messages.read"
+  ],
+  "socket": "/tmp/conduit-slack.sock"
 }
