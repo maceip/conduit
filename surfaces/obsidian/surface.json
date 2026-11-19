@@ -1,0 +1,7 @@
+{
+  "id": "dev.conduit.obsidian.notes/v1",
+  "channel": "notes",
+  "schemas": ["dev.conduit.obsidian.note/v1"],
+  "scopes": ["obsidian.notes.read"],
+  "socket": "/tmp/conduit-obsidian.sock"
+}

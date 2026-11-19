@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Conduit for Thunderbird",
+  "version": "0.1.0",
+  "description": "Publishes the message in front of you to a Conduit client.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "conduit@maceip.github.io",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["messagesRead"],
+  "background": {
+    "scripts": ["background.js"]
+  }
+}

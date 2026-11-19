@@ -1,0 +1,7 @@
+{
+  "name": "conduit-obsidian",
+  "version": "0.1.0",
+  "description": "Publishes what Obsidian has open to a Conduit client.",
+  "type": "commonjs",
+  "main": "main.js"
+}

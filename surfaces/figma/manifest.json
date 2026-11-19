@@ -1,0 +1,16 @@
+{
+  "name": "Conduit for Figma",
+  "id": "conduit-surface",
+  "api": "1.0.0",
+  "editorType": ["figma"],
+  "main": "code.js",
+  "ui": "ui.html",
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://127.0.0.1"],
+    "reasoning": "The plugin publishes the selection to the Conduit near end on the loopback. It talks to nothing else."
+  },
+  "capabilities": [],
+  "permissions": []
+}

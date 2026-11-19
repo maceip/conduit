@@ -1,0 +1,7 @@
+{
+  "name": "conduit-thunderbird",
+  "version": "0.1.0",
+  "description": "Publishes what Thunderbird has open to a Conduit client.",
+  "private": true,
+  "type": "module"
+}

@@ -1,0 +1,10 @@
+{
+  "id": "conduit",
+  "name": "Conduit",
+  "version": "0.1.0",
+  "minAppVersion": "1.5.0",
+  "description": "Publishes the note in front of you to a Conduit client.",
+  "author": "Conduit",
+  "authorUrl": "https://github.com/maceip/conduit",
+  "isDesktopOnly": false
+}

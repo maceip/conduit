@@ -1,0 +1,7 @@
+{
+  "name": "conduit-figma",
+  "version": "0.1.0",
+  "description": "Publishes what Figma has selected to a Conduit client.",
+  "private": true,
+  "type": "module"
+}

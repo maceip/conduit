@@ -56,15 +56,15 @@ applies.
 | apple-shortcuts | nothing | **not run**: no Swift toolchain. The App Intent was never compiled and never appeared in Shortcuts. |
 | antigravity | the plugin's files and the MCP server it ships, driven over stdio | **not run**: Antigravity itself. The IDE was never launched, the plugin was never installed or validated by `agy`, and the skill was never loaded by an agent. |
 | discord | the publishing half, end to end, against a real broker and a real near end | the Discord side: no application, no token, no guild. The Gateway handshake, the heartbeat and the slash command never ran. |
-| figma | the publishing half, over the loopback | Figma itself: the plugin was never installed or run in the editor. |
+| figma | the publishing half, over the loopback, with the near end's web client — the same module the iframe imports | Figma itself: the IDE was never launched, the plugin was never installed or run in the editor, and the sandbox it runs in was never entered. |
 | home-assistant | the publishing half (`publish.py`, the module `__init__.py` imports), end to end | Home Assistant itself: the integration was never loaded by HA, and the event bus, `hass.states.get` and the config entry never ran. |
 | mcp | the MCP server, end to end, over stdio, against a real broker and a real near end | any real MCP host or SDK: the check speaks JSON-RPC by hand. The SEP-2133 extensions framework is not implemented. |
 | neovim | nothing | **not run**: no Neovim, no Lua. The plugin was never loaded. |
-| obsidian | the publishing half, and the plugin class driven with a fake app object | Obsidian itself: the plugin was never loaded by Obsidian. |
+| obsidian | the publishing half — the module `main.js` imports — end to end | Obsidian itself: the plugin was never loaded by a vault, so `onload`, the workspace events and the metadata cache were never exercised. |
 | safari | the near end in its native mode, spoken to over a pipe exactly as Safari speaks to it | Safari itself: the extension was never loaded by Safari, and the native messaging host was never registered with it. |
 | slack | the publishing half, end to end | the Slack side: no app, no token. The Socket Mode handshake, the envelope ack and the slash command never ran. |
 | stream-deck | the publishing half, and the action's shape accepted by the real SDK | the device: the plugin never ran on a Stream Deck. |
-| thunderbird | the publishing half, over the loopback | Thunderbird itself: the extension was never loaded by Thunderbird. |
+| thunderbird | the publishing half, over the loopback, with the near end's web client — the same module `background.js` imports | Thunderbird itself: the extension was never loaded by it, and `messenger.messageList` was never called. |
 | vscode | the publishing half — the module `extension.js` imports — end to end | VS Code itself: the extension was never loaded by an editor, because the VS Code API is not on this machine. |
 | wordpress | nothing | **not run**: PHP is not installed. Neither file was ever parsed and no hook ever fired. |
 
@@ -74,6 +74,10 @@ A check starts a **real broker**, starts a **real near end** with the
 surface's own declaration, runs the **plugin's own code** — not a copy
 of it — and sees the client at the far end receive the payload, opened.
 Nothing in a check is mocked.
+
+Eleven of the fifteen have one.  The four that do not are the four
+whose runtime is not on this machine: apple mail, apple shortcuts,
+wordpress and neovim.
 
 ```sh
 cargo build -p conduit-broker -p conduit-near-end

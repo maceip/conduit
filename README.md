@@ -59,7 +59,7 @@ outside a browser, a surface is three parts: the app, the plugin inside it, and 
 | [`vscode`](surfaces/vscode) | vs code | the tab in front of the user |
 | [`wordpress`](surfaces/wordpress) | wordpress | the site, and each post |
 
-what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). in short: eight of them are checked end to end here — a real broker, a real near end, the plugin's own code — and the ones whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
+what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). in short: eleven of them are checked end to end here — a real broker, a real near end, the plugin's own code — and the four whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
 
 whatsapp has no extension surface at all: everything third-party is server-side, so there is no whatsapp surface here, and the reason is in [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md).
 
@@ -82,7 +82,7 @@ shipped + tested: protocol, broker, client lib, the near end, both extensions, t
 
 verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
 
-verified outside a browser: eight surfaces are checked here against a real broker and a real near end, with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
+verified outside a browser: eleven surfaces are checked here against a real broker and a real near end, with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
 
 not verified: safari itself, and the four surfaces whose runtime is not on this machine — apple mail, apple shortcuts, wordpress and neovim. their code is written and was never run.
 
