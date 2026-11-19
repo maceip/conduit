@@ -1,5 +1,5 @@
 graph LR
-  E[extension in the app] -->|publish, result| B[broker]
-  B -->|subscribe, call| E
-  B -->|publish, result| C[client: CLI, IDE, agent]
-  C -->|subscribe, call| B
+  E[extension] -->|publish/result| B[broker]
+  B -->|publish/result| C[client]
+  C -->|subscribe/call| B
+  B -->|subscribe/call| E

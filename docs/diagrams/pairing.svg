@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 426.615 360" width="533" height="450" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 425.874 360" width="532" height="450" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
 <style>
   text { font-family: ui-monospace, Menlo, Consolas, "Liberation Mono", "Courier New", monospace; }
   svg {
@@ -25,43 +25,43 @@
     <polyline points="0 0, 8 2.5, 0 5" fill="none" stroke="var(--_arrow)" stroke-width="1" />
   </marker>
 </defs>
-<line class="lifeline" data-actor="Extension" x1="76.615" y1="70" x2="76.615" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
-<line class="lifeline" data-actor="Broker" x1="216.615" y1="70" x2="216.615" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
-<line class="lifeline" data-actor="User" x1="356.615" y1="70" x2="356.615" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
-<g class="message" data-from="Extension" data-to="Broker" data-label="POST /v1/device/code with surface and scopes" data-line-style="solid" data-arrow-head="filled" data-self="false">
-  <line x1="76.615" y1="90" x2="216.615" y2="90" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
-  <text x="146.615" y="80" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /v1/device/code with surface and scopes</text>
+<line class="lifeline" data-actor="extension" x1="75.874" y1="70" x2="75.874" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="broker" x1="215.874" y1="70" x2="215.874" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<line class="lifeline" data-actor="user" x1="355.874" y1="70" x2="355.874" y2="330" stroke="var(--_line)" stroke-width="0.75" stroke-dasharray="6 4" />
+<g class="message" data-from="extension" data-to="broker" data-label="POST /v1/device/code with surface and scopes" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="75.874" y1="90" x2="215.874" y2="90" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="145.874" y="80" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /v1/device/code with surface and scopes</text>
 </g>
-<g class="message" data-from="Broker" data-to="Extension" data-label="code and approval URL, valid 10 minutes" data-line-style="dashed" data-arrow-head="filled" data-self="false">
-  <line x1="216.615" y1="130" x2="76.615" y2="130" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
-  <text x="146.615" y="120" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">code and approval URL, valid 10 minutes</text>
+<g class="message" data-from="broker" data-to="extension" data-label="code and approval URL, valid 10 minutes" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="215.874" y1="130" x2="75.874" y2="130" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="145.874" y="120" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">code and approval URL, valid 10 minutes</text>
 </g>
-<g class="message" data-from="Extension" data-to="User" data-label="show the code" data-line-style="solid" data-arrow-head="filled" data-self="false">
-  <line x1="76.615" y1="170" x2="356.615" y2="170" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
-  <text x="216.615" y="160" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">show the code</text>
+<g class="message" data-from="extension" data-to="user" data-label="show the code" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="75.874" y1="170" x2="355.874" y2="170" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="215.87400000000002" y="160" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">show the code</text>
 </g>
-<g class="message" data-from="User" data-to="Broker" data-label="approve the code on the broker's page" data-line-style="solid" data-arrow-head="filled" data-self="false">
-  <line x1="356.615" y1="210" x2="216.615" y2="210" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
-  <text x="286.615" y="200" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">approve the code on the broker&#39;s page</text>
+<g class="message" data-from="user" data-to="broker" data-label="approve the code on the broker's page" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="355.874" y1="210" x2="215.874" y2="210" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="285.874" y="200" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">approve the code on the broker&#39;s page</text>
 </g>
-<g class="message" data-from="Extension" data-to="Broker" data-label="POST /v1/device/secret with code and instance" data-line-style="solid" data-arrow-head="filled" data-self="false">
-  <line x1="76.615" y1="250" x2="216.615" y2="250" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
-  <text x="146.615" y="240" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /v1/device/secret with code and instance</text>
+<g class="message" data-from="extension" data-to="broker" data-label="POST /v1/device/secret with code and instance" data-line-style="solid" data-arrow-head="filled" data-self="false">
+  <line x1="75.874" y1="250" x2="215.874" y2="250" stroke="var(--_line)" stroke-width="1" marker-end="url(#seq-arrow)" />
+  <text x="145.874" y="240" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">POST /v1/device/secret with code and instance</text>
 </g>
-<g class="message" data-from="Broker" data-to="Extension" data-label="256-bit secret bound to the approved grant" data-line-style="dashed" data-arrow-head="filled" data-self="false">
-  <line x1="216.615" y1="290" x2="76.615" y2="290" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
-  <text x="146.615" y="280" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">256-bit secret bound to the approved grant</text>
+<g class="message" data-from="broker" data-to="extension" data-label="256-bit secret bound to the approved grant" data-line-style="dashed" data-arrow-head="filled" data-self="false">
+  <line x1="215.874" y1="290" x2="75.874" y2="290" stroke="var(--_line)" stroke-width="1" stroke-dasharray="6 4" marker-end="url(#seq-arrow)" />
+  <text x="145.874" y="280" font-size="8.8" text-anchor="middle" font-weight="400" fill="var(--_text-muted)" dy="3.8499999999999996">256-bit secret bound to the approved grant</text>
 </g>
-<g class="actor" data-id="Extension" data-label="Extension" data-type="participant">
-  <rect x="30" y="30" width="93.22999999999999" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
-  <text x="76.615" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">Extension</text>
+<g class="actor" data-id="extension" data-label="extension" data-type="participant">
+  <rect x="29.999999999999993" y="30" width="91.748" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="75.874" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">extension</text>
 </g>
-<g class="actor" data-id="Broker" data-label="Broker" data-type="participant">
-  <rect x="176.615" y="30" width="80" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
-  <text x="216.615" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">Broker</text>
+<g class="actor" data-id="broker" data-label="broker" data-type="participant">
+  <rect x="175.874" y="30" width="80" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="215.874" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">broker</text>
 </g>
-<g class="actor" data-id="User" data-label="User" data-type="participant">
-  <rect x="316.615" y="30" width="80" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
-  <text x="356.615" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">User</text>
+<g class="actor" data-id="user" data-label="user" data-type="participant">
+  <rect x="315.874" y="30" width="80" height="40" rx="4" ry="4" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="1" />
+  <text x="355.874" y="50" font-size="10.4" text-anchor="middle" font-weight="500" fill="var(--_text)" dy="4.55">user</text>
 </g>
 </svg>

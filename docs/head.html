@@ -2,4 +2,10 @@
   html, body, code, pre, kbd, samp, table, h1, h2, h3, h4 {
     font-family: ui-monospace, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
   }
+  body { max-width: 48em; }
+  /* Diagrams are box-drawing text: never wrap, and keep the rows touching
+     so vertical lines stay joined. */
+  pre, pre code { white-space: pre; overflow-wrap: normal; word-break: normal; }
+  pre { font-size: 0.9em; line-height: 1; overflow-x: auto; }
+  img { max-width: 100%; height: auto; }
 </style>

@@ -41,11 +41,11 @@ jobs:
           mkdir -p _site
           # On the site the diagrams are text, drawn by mermaid-ascii.
           sh scripts/pages-readme.sh > "$RUNNER_TEMP/README.md"
-          pandoc "$RUNNER_TEMP/README.md" --standalone --include-in-header=docs/head.html --metadata title=Conduit -o _site/index.html
+          pandoc "$RUNNER_TEMP/README.md" --standalone --include-in-header=docs/head.html --metadata pagetitle=conduit -o _site/index.html
           for file in docs/*.md docs/research/*.md; do
             out="_site/${file%.md}.html"
             mkdir -p "$(dirname "$out")"
-            pandoc "$file" --standalone --include-in-header=docs/head.html --metadata title=Conduit -o "$out"
+            pandoc "$file" --standalone --include-in-header=docs/head.html --metadata pagetitle=conduit -o "$out"
           done
           cp -r spec _site/spec
           cp docs/social-preview.jpg _site/docs/

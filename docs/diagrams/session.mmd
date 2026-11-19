@@ -1,20 +1,13 @@
 sequenceDiagram
-  participant Extension
-  participant Broker
-  participant Client
-  Extension->>Broker: hello: public key, last seq
-  Broker-->>Extension: welcome: grant, resume point
-  Client->>Broker: hello: public key, last seq
-  Broker-->>Client: welcome: replay from the ring
-  Client->>Broker: subscribe mail.compose.read
-  Broker-->>Client: subscribed
-  Extension->>Broker: publish, sealed
-  Broker-->>Client: publish, still sealed
-  Client->>Broker: call, sealed
-  Broker->>Extension: call
-  Extension->>Broker: result, sealed
-  Broker-->>Client: result
-  Client->>Broker: subscribe outside the grant
-  Broker-->>Client: error scope_denied
-  Client->>Broker: ping every 20 seconds
-  Broker-->>Client: pong
+  participant extension
+  participant broker
+  participant client
+  extension->>broker: hello: key, last seq
+  client->>broker: hello: key, last seq
+  broker-->>client: welcome + missed frames
+  extension->>broker: publish, sealed
+  broker-->>client: publish, still sealed
+  client->>broker: call, sealed
+  broker->>extension: call
+  extension->>broker: result, sealed
+  broker-->>client: result
