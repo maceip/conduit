@@ -36,6 +36,7 @@
  */
 
 import { agree, generateKeyPair, open as openPayload, seal, toBase64Url } from "./sealing.js";
+import { tunnelUrl } from "./config.js";
 
 export const DEFAULTS = {
   // The ping, in milliseconds.  The worker's idle timer is 30 seconds.
@@ -98,6 +99,17 @@ function fromBase64Url(text) {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+/* Is this socket open?  A socket that is still connecting is not. */
+function isOpen(socket) {
+  if (!socket) {
+    return false;
+  }
+  if (typeof WebSocket !== "undefined" && typeof WebSocket.OPEN === "number") {
+    return socket.readyState === WebSocket.OPEN;
+  }
+  return socket.readyState === 1;
 }
 
 /* One surface, carried over one tunnel. */
@@ -275,6 +287,7 @@ export function createNearEnd(surface, options = {}) {
           url: config.broker,
           surface: surface.id,
           secret: config.secret,
+          instance: config.instance,
           crypto: {
             scheme: "p256-aes256gcm/v1",
             public: toBase64Url(state.keys.publicBytes),
@@ -295,15 +308,9 @@ export function createNearEnd(surface, options = {}) {
     /* The broker refuses an end that does not present its secret, so the
      * secret and the instance ride on the connection: the secret is the
      * user's, and the instance names this end of the grant. */
-    const socket = new WebSocket(
-      config.broker +
-        "?role=extension&surface=" +
-        encodeURIComponent(surface.id) +
-        "&secret=" +
-        encodeURIComponent(config.secret) +
-        "&instance=" +
-        encodeURIComponent(config.instance),
-    );
+    const url = new URL(tunnelUrl(config.broker, surface.id, config.secret));
+    url.searchParams.set("instance", config.instance);
+    const socket = new WebSocket(url.toString());
     state.socket = socket;
 
     socket.onopen = () => {
@@ -414,7 +421,7 @@ export function createNearEnd(surface, options = {}) {
       return {
         surface: surface.id,
         sequence: state.sequence,
-        connected: !!state.socket,
+        connected: isOpen(state.socket),
         agreed: !!state.tunnel,
       };
     },

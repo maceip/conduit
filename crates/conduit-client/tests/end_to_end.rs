@@ -3,7 +3,7 @@
 //! sealed end to end.
 
 use conduit_broker::{router, AppState, InMemoryRegistry};
-use conduit_client::{Address, Client};
+use conduit_client::{Address, Client, ClientError};
 use conduit_protocol::sealed::{self, KeyPair};
 use conduit_protocol::{Frame, FrameType, Grant, SchemaId, Scope};
 use futures_util::{SinkExt, StreamExt};
@@ -21,10 +21,14 @@ async fn broker() -> String {
         .put_grant(Grant {
             surface: surface(),
             instance: "bootstrap".to_string(),
-            scopes: vec![Scope::new("mail.compose", conduit_protocol::verb::READ)],
+            scopes: vec![
+                Scope::new("mail.compose", conduit_protocol::verb::READ),
+                Scope::new("mail.compose", conduit_protocol::verb::WRITE),
+            ],
             schemes: vec![sealed::SCHEME.to_string()],
         })
         .await;
+    registry.put_token("token", vec![surface()]).await;
     let state = AppState {
         registry,
         tunnels: Arc::new(tokio::sync::Mutex::new(Default::default())),
@@ -50,8 +54,8 @@ fn hello(role: &str, keys: &KeyPair, prefix: [u8; 4]) -> String {
         "surface": surface().to_string(),
         "crypto": {
             "scheme": sealed::SCHEME,
-            "public": sealed::bytes_to_base64url(&keys.public_bytes()),
-            "prefix": sealed::bytes_to_base64url(&prefix),
+            "public": sealed::to_wire(&keys.public_bytes()),
+            "prefix": sealed::to_wire(&prefix),
         },
     })
     .to_string();
@@ -72,10 +76,10 @@ fn public_of(frame: &str) -> [u8; 65] {
     let public = value["p"].as_str().expect("a payload");
     let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
     let text = inner["crypto"]["public"].as_str().expect("a public key");
-    let bytes = sealed::bytes_from_base64url(text).expect("base64url");
-    let mut point = [0u8; 65];
-    point.copy_from_slice(&bytes);
-    point
+    sealed::from_wire(text)
+        .expect("base64url")
+        .try_into()
+        .expect("65 bytes")
 }
 
 /// The nonce prefix the peer sent, out of a hello frame.
@@ -84,10 +88,10 @@ fn prefix_of(frame: &str) -> [u8; 4] {
     let public = value["p"].as_str().expect("a payload");
     let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
     let text = inner["crypto"]["prefix"].as_str().expect("a prefix");
-    let bytes = sealed::bytes_from_base64url(text).expect("base64url");
-    let mut prefix = [0u8; 4];
-    prefix.copy_from_slice(&bytes);
-    prefix
+    sealed::from_wire(text)
+        .expect("base64url")
+        .try_into()
+        .expect("4 bytes")
 }
 
 #[tokio::test]
@@ -259,4 +263,82 @@ fn an_address_without_a_scheme_is_not_an_address() {
     assert!(Address::parse("mail/compose@v1").is_err());
     assert!(Address::parse("conduit:///compose@v1").is_err());
     assert!(Address::parse("conduit://mail/compose@x").is_err());
+}
+
+#[tokio::test]
+async fn a_refusal_of_one_frame_does_not_fail_the_next_send() {
+    // A grant with read only: every client publish is refused.
+    let registry = InMemoryRegistry::new();
+    registry
+        .put_grant(Grant {
+            surface: surface(),
+            instance: "bootstrap".to_string(),
+            scopes: vec![Scope::new("mail.compose", conduit_protocol::verb::READ)],
+            schemes: vec![sealed::SCHEME.to_string()],
+        })
+        .await;
+    registry.put_token("token", vec![surface()]).await;
+    let state = AppState {
+        registry,
+        tunnels: Arc::new(tokio::sync::Mutex::new(Default::default())),
+        devices: conduit_broker::Devices::new(),
+        extension_secret: "secret".to_string(),
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let address = format!("ws://{}", listener.local_addr().expect("the address"));
+    tokio::spawn(async move {
+        axum::serve(listener, router(state))
+            .await
+            .expect("the server runs");
+    });
+
+    let (mut extension, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=extension&surface=dev.conduit.mail.compose%2Fv1&secret=secret"
+    ))
+    .await
+    .expect("the extension connects");
+    extension
+        .send(Message::Text(hello(
+            "extension",
+            &KeyPair::generate(),
+            sealed::random_prefix(),
+        )))
+        .await
+        .expect("the hello goes");
+    while let Some(Ok(message)) = extension.next().await {
+        if matches!(&message, Message::Text(text) if text.contains("welcome")) {
+            break;
+        }
+    }
+
+    let target = Address::parse("conduit://dev.conduit.mail.compose/compose@v1")
+        .expect("the address parses");
+    let mut client = Client::connect(&format!("{address}/v1/tunnel"), "token", &target)
+        .await
+        .expect("the client connects");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let schema = SchemaId::new("dev.conduit.mail.message", 1);
+    client
+        .publish(&schema, "compose", b"one")
+        .await
+        .expect("the first publish goes");
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    client
+        .publish(&schema, "compose", b"two")
+        .await
+        .expect("the refusal of the first doesn't fail the second");
+
+    for _ in 0..2 {
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), client.next())
+            .await
+            .expect("an answer arrives");
+        match next {
+            Err(ClientError::Refused(text)) => {
+                assert!(text.contains("scope_denied"), "{text}");
+                assert!(text.contains("mail.compose.write"), "{text}");
+            }
+            other => panic!("expected a refusal, got {other:?}"),
+        }
+    }
 }

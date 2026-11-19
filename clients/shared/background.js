@@ -1,30 +1,55 @@
 /*
- * The conduit background: the near ends of the tunnels.
+ * The extension: the surfaces it offers, the device flow that gets the
+ * user's secret, and the popup's questions.
  *
- * This file is the same on both browsers.  Chromium runs it in a
- * service worker; Safari runs it in a background page and hands the
- * socket to a native host, because Safari unloads idle background
- * contexts and its WebSocket to 127.0.0.1 is broken.
- *
- * What lives here is the extension: the surfaces it offers, the
- * user's secret and broker, and the device flow that gets the secret
- * from the user.  The tunnel machinery lives in near-end.js, and it is
- * the same for every surface — that is the point of it.
+ * The tunnel machinery lives in near-end.js, and it is the same for
+ * every surface — that is the point of it.  What lives here is what
+ * differs: which surfaces the extension offers, which secret belongs
+ * to which surface, and what the user is told.
  *
  * A surface never publishes a stand-in: when the read says there is
  * nothing, nothing is published.
+ *
+ * The rules it follows come from the platforms, not from taste:
+ *
+ *   - A ping every 20 seconds.  Chromium kills a service worker after
+ *     30 seconds of silence, and from Chrome 116 only traffic that is
+ *     actually flowing keeps it alive.  An idle socket does not, and
+ *     neither does a retry loop against a dead broker.
+ *   - The last sequence number is kept, so a reconnect can ask for the
+ *     frames it missed.
+ *   - The backoff is exponential with jitter, so a broker that comes
+ *     back is not met by a stampede.
+ *   - The payload is sealed between the two ends.  The broker carries
+ *     it and never opens it.
+ *
+ * Every browser-only call is guarded: Safari throws on a Chromium-only
+ * call at the top level of a background script, and then discards the
+ * background context without a word.
  */
 
-import { browserStore, createNearEnd } from "./near-end.js";
-import { CHANNEL, SCOPE, readTab, SCHEMA } from "./surface-browser.js";
-import { CHANNEL as WINDOWS_CHANNEL, SCOPE as WINDOWS_SCOPE, readWindow, SCHEMA as WINDOWS_SCHEMA } from "./surface-windows.js";
+import { browserApi, createNearEnd } from "./near-end.js";
+import { CHANNEL, SCHEMA, SCOPE, readTab } from "./surface-browser.js";
+import {
+  CHANNEL as WINDOWS_CHANNEL,
+  SCHEMA as WINDOWS_SCHEMA,
+  SCOPE as WINDOWS_SCOPE,
+  readWindow,
+} from "./surface-windows.js";
+import { DEFAULT_BROKER, endpoint, parseBroker } from "./config.js";
 
 const CONFIG = {
-  // The broker.  A hosted broker is wss://; a local one is ws://.
-  broker: "wss://broker.example/v1/tunnel",
+  // The broker.  A hosted broker is wss://; a local one is ws://.  The
+  // user sets it in the popup; it lives in storage as conduit.broker.
+  broker: DEFAULT_BROKER,
 
-  // The instance of this end, for the grant.
+  // The instance of this end, for the grant.  The broker binds the
+  // instance to the secret when it gives the secret out, so an
+  // extension cannot claim another instance's grant by naming it.
   instance: "extension",
+
+  // How often to ask whether the user approved the code.
+  approvalPollMs: 2000,
 };
 
 /* The surfaces this extension offers.  Each is a module: what it is,
@@ -46,80 +71,237 @@ const SURFACES = [
   },
 ];
 
-const ends = SURFACES.map((surface) => [
-  surface,
-  createNearEnd(surface, { broker: CONFIG.broker, instance: CONFIG.instance }),
-]);
+const api = browserApi();
 
-const store = browserStore();
+/* Two stores.  What has to outlive the browser (the broker, the
+ * secrets, whether the user stopped the tunnel) goes in local storage;
+ * what only matters while the browser runs (the sequence numbers, a
+ * pending code) goes in session storage where there is one. */
+const durable = api && api.storage && api.storage.local ? api.storage.local : null;
+const store = api && api.storage ? api.storage.session || api.storage.local : null;
 
-/* The user's broker, if they have pointed the extension at one. */
-async function loadBroker() {
-  if (!store) {
-    return CONFIG.broker;
+const state = {
+  broker: DEFAULT_BROKER,
+  stopped: false,
+  starting: null,
+  lastError: null,
+  /* One entry per surface: the near end that carries it, the secret it
+   * holds, and the code the user is yet to approve. */
+  surfaces: new Map(),
+};
+
+async function read(where, key, fallback) {
+  if (!where) {
+    return fallback;
   }
-  const held = await store.get("conduit.broker");
-  return held && held["conduit.broker"] ? held["conduit.broker"] : CONFIG.broker;
+  const held = await where.get(key);
+  return held && held[key] !== undefined && held[key] !== null ? held[key] : fallback;
 }
 
-/* The secret of one surface, if the user has approved one.
- *
- * The secret is the user's decision: it comes from the device flow,
- * and it is not the extension's to keep if the user takes it away. */
-async function loadSecret(surfaceId) {
-  if (!store) {
-    return "";
+async function write(where, values) {
+  if (where) {
+    await where.set(values);
   }
-  const key = "conduit.secret." + surfaceId;
-  const held = await store.get(key);
-  return held && held[key] ? held[key] : "";
 }
 
-/* Keep the secret of one surface. */
-async function saveSecret(surfaceId, secret) {
-  if (!store) {
-    return;
+async function forget(where, keys) {
+  if (where) {
+    await where.remove(keys);
   }
-  await store.set({ ["conduit.secret." + surfaceId]: secret });
+}
+
+/* The key a surface's secret is kept under.  A secret belongs to one
+ * surface — the broker binds it — so the keys are per surface. */
+function secretKey(surfaceId) {
+  return "conduit.secret." + surfaceId;
+}
+
+function pendingKey(surfaceId) {
+  return "conduit.pending." + surfaceId;
+}
+
+/* Build the near end of every surface.  They are built once and kept;
+ * the broker and the secret can change underneath them. */
+for (const surface of SURFACES) {
+  const entry = {
+    surface,
+    end: null,
+    secret: "",
+    pending: null,
+    approvalTimer: null,
+    asking: false,
+  };
+  entry.end = createNearEnd(surface, {
+    broker: state.broker,
+    instance: CONFIG.instance,
+    store: store,
+  });
+  state.surfaces.set(surface.id, entry);
+}
+
+/* The entry of a surface. */
+function entryOf(surfaceId) {
+  return state.surfaces.get(surfaceId) || null;
 }
 
 /* Ask the broker for a code, and open the page where the user
  * approves it.
  *
  * The broker does not hand out a secret because an extension asked:
- * the user says yes first, in the broker's own page. */
-async function askForApproval(surface) {
-  const api = typeof browser !== "undefined" ? browser : chrome;
-  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/code", {
+ * the user says yes first, in the broker's own page.  A code is asked
+ * for per surface, because the secret it becomes belongs to that
+ * surface and no other. */
+async function askForApproval(entry) {
+  const answer = await fetch(endpoint(state.broker, "/v1/device/code"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      surface: surface.id,
-      scopes: surface.scopes,
+      surface: entry.surface.id,
+      scopes: entry.surface.scopes,
     }),
   });
   if (!answer.ok) {
-    return null;
+    throw new Error(`the broker said ${answer.status} to the code`);
   }
   const code = await answer.json();
-  const page = CONFIG.broker.replace(/^ws/, "http") + code.url;
+  entry.pending = {
+    code: code.code,
+    expires: Date.now() + code.expires_in * 1000,
+    broker: state.broker,
+  };
+  await write(store, { [pendingKey(entry.surface.id)]: entry.pending });
   if (api && api.tabs && api.tabs.create) {
-    await api.tabs.create({ url: page });
+    await api.tabs.create({ url: endpoint(state.broker, code.url) });
   }
-  return code.code;
 }
 
 /* Ask the broker whether the user has approved the code. */
-async function pollForTheSecret(surface, code) {
-  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/secret", {
+async function pollForTheSecret(entry) {
+  if (!entry.pending) {
+    return false;
+  }
+  const answer = await fetch(endpoint(state.broker, "/v1/device/secret"), {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, instance: CONFIG.instance }),
+    body: JSON.stringify({ code: entry.pending.code, instance: CONFIG.instance }),
   });
   if (!answer.ok) {
-    return "";
+    return false;
   }
-  return answer.text();
+  const secret = await answer.text();
+  entry.secret = secret;
+  entry.pending = null;
+  entry.end.setSecret(secret);
+  await write(durable, { [secretKey(entry.surface.id)]: secret });
+  await forget(store, [pendingKey(entry.surface.id)]);
+  return true;
+}
+
+/* Wait for the user to approve the code, then open the tunnel. */
+function waitForApproval(entry) {
+  if (entry.approvalTimer !== null) {
+    clearInterval(entry.approvalTimer);
+  }
+  entry.approvalTimer = setInterval(async () => {
+    if (entry.asking) {
+      return;
+    }
+    entry.asking = true;
+    try {
+      if (!entry.pending || Date.now() > entry.pending.expires) {
+        /* The code died before the user approved it: ask for another. */
+        clearInterval(entry.approvalTimer);
+        entry.approvalTimer = null;
+        entry.pending = null;
+        await forget(store, [pendingKey(entry.surface.id)]);
+        await start();
+        return;
+      }
+      if (await pollForTheSecret(entry)) {
+        clearInterval(entry.approvalTimer);
+        entry.approvalTimer = null;
+        entry.end.start();
+      }
+    } catch (error) {
+      state.lastError = String(error && error.message ? error.message : error);
+    } finally {
+      entry.asking = false;
+    }
+  }, CONFIG.approvalPollMs);
+}
+
+/* The secret of a surface, if the user has approved one. */
+async function loadSecret(entry) {
+  const secret = await read(durable, secretKey(entry.surface.id), "");
+  entry.secret = secret || "";
+  entry.end.setSecret(entry.secret);
+  return entry.secret;
+}
+
+/* Forget the secret of a surface.  The user took it away, or the
+ * broker changed. */
+async function forgetTheSecret(entry) {
+  entry.secret = "";
+  entry.pending = null;
+  entry.end.setSecret("");
+  await forget(durable, [secretKey(entry.surface.id)]);
+  await forget(store, [pendingKey(entry.surface.id)]);
+}
+
+/* Publish what every surface reads right now.  A surface that has
+ * nothing to say says nothing. */
+async function publishEverywhere() {
+  for (const entry of state.surfaces.values()) {
+    await entry.end.publishState();
+  }
+}
+
+/* What the popup sees.
+ *
+ * The one line is the state of the tunnel as a whole; the surfaces
+ * are listed under it, because a surface that is up and a surface that
+ * is not are different facts. */
+function status() {
+  const surfaces = [];
+  let paired = 0;
+  let connecting = 0;
+  let pairing = false;
+  for (const entry of state.surfaces.values()) {
+    const near = entry.end.status();
+    surfaces.push({
+      id: entry.surface.id,
+      paired: !!entry.secret,
+      pairing: !!entry.pending,
+      connected: near.connected,
+      agreed: near.agreed,
+    });
+    if (entry.secret) {
+      paired += 1;
+      if (near.connected) {
+        connecting += 1;
+      }
+    }
+    if (entry.pending) {
+      pairing = true;
+    }
+  }
+  const total = state.surfaces.size;
+  /* Every surface the extension offers has to be up before the tunnel
+   * is up: half a tunnel is not a tunnel. */
+  const allPaired = paired === total;
+  const allConnected = connecting === total;
+  return {
+    ok: true,
+    broker: state.broker,
+    paired: allPaired,
+    pairing,
+    running: !state.stopped && (allConnected || pairing),
+    connected: allConnected,
+    agreed: connecting > 0,
+    stopped: state.stopped,
+    surfaces,
+    error: state.lastError,
+  };
 }
 
 /* The message that arrives from the page or from the native side. */
@@ -128,84 +310,155 @@ async function onMessage(message) {
     return;
   }
   switch (message.action) {
-    case "publish": {
-      /* Every surface publishes what it reads. */
-      for (const [, end] of ends) {
-        await end.publishState();
-      }
+    case "publish":
+      /* The surfaces: what the browser knows right now. */
+      await publishEverywhere();
       break;
-    }
-    case "status": {
-      const statuses = ends.map(([, end]) => end.status());
-      return {
-        ok: true,
-        surfaces: statuses,
-        sequence: statuses.reduce((total, status) => total + status.sequence, 0),
-        connected: statuses.every((status) => status.connected),
-        agreed: statuses.every((status) => status.agreed),
-      };
-    }
+    case "status":
+      await state.starting;
+      return status();
     case "toggle": {
-      const running = ends.some(([, end]) => end.status().connected);
-      if (running) {
-        for (const [, end] of ends) {
-          end.stop();
-        }
+      const now = status();
+      if (now.running || now.pairing) {
+        state.stopped = true;
+        await write(durable, { "conduit.stopped": true });
+        stop();
       } else {
+        state.stopped = false;
+        await write(durable, { "conduit.stopped": false });
         await start();
       }
-      break;
+      return status();
     }
     case "stop":
-      for (const [, end] of ends) {
-        end.stop();
+      state.stopped = true;
+      await write(durable, { "conduit.stopped": true });
+      stop();
+      return status();
+    case "configure": {
+      const broker = parseBroker(message.broker);
+      if (!broker) {
+        return { ok: false, error: "not a ws:// or wss:// address" };
       }
-      break;
+      if (broker !== state.broker) {
+        /* A secret belongs to the broker that gave it out. */
+        stop();
+        await write(durable, { "conduit.broker": broker, "conduit.stopped": false });
+        state.broker = broker;
+        for (const entry of state.surfaces.values()) {
+          entry.end.setBroker(broker);
+          await forgetTheSecret(entry);
+        }
+        state.stopped = false;
+        await start();
+      }
+      return status();
+    }
     default:
       break;
   }
   return { ok: true };
 }
 
-/* The start of the tunnels: with the secrets the user gave, and a
- * device flow for each surface that has none. */
-async function start() {
-  CONFIG.broker = await loadBroker();
-  for (const [surface, end] of ends) {
-    end.setBroker(CONFIG.broker);
-    const secret = await loadSecret(surface.id);
-    if (secret) {
-      end.setSecret(secret);
-      await end.start();
-      continue;
+/* Answer through sendResponse and return `true`: every browser takes
+ * that, while a returned promise is dropped by the Chromium versions
+ * this extension supports. */
+function listen(message, sender, sendResponse) {
+  onMessage(message).then(
+    (reply) => sendResponse(reply),
+    (error) => sendResponse({ ok: false, error: String(error) }),
+  );
+  return true;
+}
+
+/* Stop the tunnel, and any pairing in flight. */
+function stop() {
+  for (const entry of state.surfaces.values()) {
+    if (entry.approvalTimer !== null) {
+      clearInterval(entry.approvalTimer);
+      entry.approvalTimer = null;
     }
-    // There is no secret for this surface yet: ask for one, and wait
-    // for the user.
-    const code = await askForApproval(surface).catch(() => null);
-    if (!code) {
-      continue;
-    }
-    const timer = setInterval(async () => {
-      const granted = await pollForTheSecret(surface, code).catch(() => "");
-      if (granted) {
-        clearInterval(timer);
-        await saveSecret(surface.id, granted);
-        end.setSecret(granted);
-        await end.start();
-      }
-    }, 5000);
+    entry.pending = null;
+    entry.end.stop();
   }
 }
 
-/* Wire the messages, in whichever browser this is. */
-const api = typeof browser !== "undefined" ? browser : chrome;
+/* The start of the tunnel.  One start at a time: the worker starts on
+ * install and on its own load, and two starts would ask for two codes
+ * and open two approval tabs. */
+function start() {
+  if (!state.starting) {
+    state.starting = begin().finally(() => {
+      state.starting = null;
+    });
+  }
+  return state.starting;
+}
+
+async function begin() {
+  state.broker =
+    parseBroker(await read(durable, "conduit.broker", DEFAULT_BROKER)) || DEFAULT_BROKER;
+  state.stopped = !!(await read(durable, "conduit.stopped", false));
+  for (const entry of state.surfaces.values()) {
+    entry.end.setBroker(state.broker);
+  }
+  if (state.stopped) {
+    return;
+  }
+  for (const entry of state.surfaces.values()) {
+    const secret = await loadSecret(entry);
+    if (secret) {
+      await entry.end.start();
+      continue;
+    }
+    if (entry.approvalTimer !== null) {
+      continue;
+    }
+    /* There is no secret yet: ask for one, and wait for the user.  A
+     * code asked for before the worker was unloaded is still good. */
+    const pending = await read(store, pendingKey(entry.surface.id), null);
+    try {
+      if (pending && pending.broker === state.broker && pending.expires > Date.now()) {
+        entry.pending = pending;
+      } else {
+        await askForApproval(entry);
+      }
+    } catch (error) {
+      state.lastError = String(error && error.message ? error.message : error);
+      continue;
+    }
+    waitForApproval(entry);
+  }
+}
+
+/* Wire the messages and the tabs, in whichever browser this is.  A
+ * service worker has to add its listeners at the top level, on every
+ * load. */
 if (api && api.runtime && api.runtime.onMessage) {
-  api.runtime.onMessage.addListener(onMessage);
+  api.runtime.onMessage.addListener(listen);
   if (api.runtime.onInstalled) {
-    api.runtime.onInstalled.addListener(start);
+    api.runtime.onInstalled.addListener(() => start());
   }
   if (api.runtime.onStartup) {
-    api.runtime.onStartup.addListener(start);
+    api.runtime.onStartup.addListener(() => start());
+  }
+}
+if (api && api.tabs) {
+  const tabSurface = entryOf("dev.conduit.browser.tabs/v1");
+  const publishTabs = () => {
+    if (tabSurface) {
+      tabSurface.end.publishState();
+    }
+  };
+  if (api.tabs.onActivated) {
+    api.tabs.onActivated.addListener(publishTabs);
+  }
+  if (api.tabs.onUpdated) {
+    api.tabs.onUpdated.addListener((tabId, change, tab) => {
+      if (tab && tab.active && (change.status === "complete" || change.title !== undefined)) {
+        publishTabs();
+      }
+    });
   }
 }
 
@@ -213,4 +466,4 @@ if (api && api.runtime && api.runtime.onMessage) {
  * than by an event, so start here as well. */
 start();
 
-export { onMessage, start };
+export { onMessage, start, stop, status };

@@ -106,9 +106,9 @@ pub enum AddressError {
 impl std::fmt::Display for AddressError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AddressError::NoScheme => formatter.write_str("the address has no scheme"),
-            AddressError::NoAuthority => formatter.write_str("the address has no authority"),
-            AddressError::NoVersion => formatter.write_str("the address has no version"),
+            AddressError::NoScheme => formatter.write_str("address has no scheme"),
+            AddressError::NoAuthority => formatter.write_str("address has no authority"),
+            AddressError::NoVersion => formatter.write_str("address has no version"),
         }
     }
 }
@@ -128,6 +128,12 @@ pub struct Event {
     pub payload: String,
     /// The payload as it arrived, sealed.
     pub sealed: String,
+}
+
+/// What came in: an event, or a refusal (the whole error frame).
+enum Incoming {
+    Event(Event),
+    Refused(String),
 }
 
 /// The keys of a tunnel, once the two ends have met.
@@ -156,8 +162,9 @@ pub struct Client {
     prefix: [u8; 4],
     /// The keys of the tunnel, once the extension's hello has arrived.
     tunnel: Option<(SharedSecret, [u8; 4])>,
-    /// The events that have arrived and not yet been handed over.
-    pending: VecDeque<Event>,
+    /// What has arrived and not yet been handed over: events, and the
+    /// broker's refusals, in the order they came.
+    pending: VecDeque<Incoming>,
 }
 
 impl Client {
@@ -240,8 +247,10 @@ impl Client {
     /// The next event of the tunnel, whatever channel it belongs to.
     pub async fn next(&mut self) -> Result<Option<Event>, ClientError> {
         loop {
-            if let Some(event) = self.pending.pop_front() {
-                return Ok(Some(event));
+            match self.pending.pop_front() {
+                Some(Incoming::Event(event)) => return Ok(Some(event)),
+                Some(Incoming::Refused(text)) => return Err(ClientError::Refused(text)),
+                None => {}
             }
             let message = self.socket.next().await;
             let Some(message) = message else {
@@ -251,8 +260,8 @@ impl Client {
             let Message::Text(text) = message else {
                 continue;
             };
-            if let Some(event) = self.take(&text)? {
-                self.pending.push_back(event);
+            if let Some(incoming) = self.take(&text)? {
+                self.pending.push_back(incoming);
             }
         }
     }
@@ -261,7 +270,9 @@ impl Client {
     ///
     /// The hello of the extension carries its public key, and the client
     /// cannot publish anything until it has that key; so the frames that
-    /// are waiting are read before anything is sent.
+    /// are waiting are read before anything is sent.  A refusal read here
+    /// answers an earlier frame => it's queued for `next`, not returned as
+    /// the failure of whatever is being sent now.
     pub async fn pump(&mut self) -> Result<(), ClientError> {
         loop {
             // A zero timeout reads what has already arrived and waits
@@ -275,14 +286,14 @@ impl Client {
             let Message::Text(text) = message else {
                 continue;
             };
-            if let Some(event) = self.take(&text)? {
-                self.pending.push_back(event);
+            if let Some(incoming) = self.take(&text)? {
+                self.pending.push_back(incoming);
             }
         }
     }
 
     /// Take what a frame has to say.
-    fn take(&mut self, text: &str) -> Result<Option<Event>, ClientError> {
+    fn take(&mut self, text: &str) -> Result<Option<Incoming>, ClientError> {
         let frame: Frame = match serde_json::from_str(text) {
             Ok(frame) => frame,
             Err(_) => return Ok(None),
@@ -298,15 +309,15 @@ impl Client {
             FrameType::Publish | FrameType::Result => {
                 let payload = frame.payload.unwrap_or_default();
                 let opened = self.open(&payload, frame.seq)?;
-                Ok(Some(Event {
+                Ok(Some(Incoming::Event(Event {
                     schema: frame.schema,
                     channel: frame.channel,
                     seq: frame.seq,
                     payload: String::from_utf8_lossy(&opened).to_string(),
                     sealed: payload,
-                }))
+                })))
             }
-            FrameType::Error => Err(ClientError::Refused(text.to_string())),
+            FrameType::Error => Ok(Some(Incoming::Refused(text.to_string()))),
             _ => Ok(None),
         }
     }
@@ -322,8 +333,8 @@ impl Client {
             "surface": self.surface.to_string(),
             "crypto": {
                 "scheme": sealed::SCHEME,
-                "public": sealed::bytes_to_base64url(&self.keys.public_bytes()),
-                "prefix": sealed::bytes_to_base64url(&self.prefix),
+                "public": sealed::to_wire(&self.keys.public_bytes()),
+                "prefix": sealed::to_wire(&self.prefix),
             },
         })
         .to_string()
@@ -388,7 +399,7 @@ impl Client {
             .and_then(|prefix| prefix.as_str())
             .ok_or(ClientError::Malformed)?;
 
-        let public = sealed::bytes_from_base64url(public).ok_or(ClientError::Malformed)?;
+        let public = sealed::from_wire(public).ok_or(ClientError::Malformed)?;
         if public.len() != 65 {
             return Err(ClientError::Malformed);
         }
@@ -396,7 +407,7 @@ impl Client {
         point.copy_from_slice(&public);
         let shared = self.keys.agree(&point);
 
-        let prefix = sealed::bytes_from_base64url(prefix).ok_or(ClientError::Malformed)?;
+        let prefix = sealed::from_wire(prefix).ok_or(ClientError::Malformed)?;
         if prefix.len() != 4 {
             return Err(ClientError::Malformed);
         }
@@ -452,18 +463,18 @@ impl std::fmt::Display for ClientError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientError::Connection(error) => {
-                write!(formatter, "the connection failed: {error}")
+                write!(formatter, "connection failed: {error}")
             }
-            ClientError::Refused(text) => write!(formatter, "the broker refused: {text}"),
-            ClientError::Encoding(error) => write!(formatter, "the frame did not encode: {error}"),
+            ClientError::Refused(text) => write!(formatter, "broker refused: {text}"),
+            ClientError::Encoding(error) => write!(formatter, "frame did not encode: {error}"),
             ClientError::WrongSurface { wanted, connected } => write!(
                 formatter,
-                "the address names the surface {wanted} and the connection is {connected}"
+                "address names surface {wanted}; connection is on {connected}"
             ),
-            ClientError::NoKeys => formatter.write_str("the extension's hello has not arrived yet"),
-            ClientError::Malformed => {
-                formatter.write_str("the frame was not what it should have been")
+            ClientError::NoKeys => {
+                formatter.write_str("no key yet => extension hello has not arrived")
             }
+            ClientError::Malformed => formatter.write_str("malformed frame"),
         }
     }
 }

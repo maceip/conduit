@@ -1,159 +1,70 @@
-# Conduit
+# conduit
 
-![Conduit](docs/social-preview.jpg)
+![conduit](docs/social-preview-rounded.png)
 
-**A typed, scoped, schemed tunnel from inside an app to a client.**
+most apps give third parties no way in. apple ships 400+ app extensions and most users never see the list.
 
-Most apps have no seam a third party can use.  Some hide theirs — Apple
-runs over four hundred app extensions that most users will never see
-listed — and some have none at all.  Conduit is a **protocol and a
-reference implementation** for the seam that does not exist yet: a way for
-a client to reach the state inside an app, over a tunnel that is typed,
-scoped and schemed, and that the user can see and revoke.
+conduit is a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
 
-```
-   the app                    the broker                    the client
-┌──────────────────┐      ┌─────────────────────┐     ┌──────────────────┐
-│  ┌────────────┐  │      │  registry           │     │  CLI / SDK       │
-│  │ extension  │──┼──────┼─▶ scopes & grants   │◀┼────┼─▶ IDE / agent   │
-│  │ (near end) │  │ WSS  │  schema registry    │     │  (far end)      │
-│  └────────────┘  │◀─────┼─▶ typed relay       │     └──────────────────┘
-└──────────────────┘      │  replay ring        │
-                           │  (sees no payload)  │
-                           └─────────────────────┘
-```
+![The extension, the broker and the client](docs/diagrams/topology.svg)
 
-**Where does it go?  To the broker.**  **Where is the other end?  A
-client** — a CLI, an IDE, an agent — that never sees the app's process,
-its memory or its permissions.  It sees exactly what the user granted to
-the extension.  The full argument is in [`docs/architecture.md`](docs/architecture.md).
+more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md)
 
-## What is in here
+## the protocol
 
-| | |
-|---|---|
-| [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md) | the catalogue: one row per app, the surface it ships, and whether the user can see it |
-| [`docs/research/extension-surfaces.md`](docs/research/extension-surfaces.md) | the survey by kind: web extensions, host plugins, OS app extensions, secret APIs, agent protocols, marketplaces |
-| [`docs/architecture.md`](docs/architecture.md) | the topology, the two ends, and the broker |
-| [`docs/protocol.md`](docs/protocol.md) | the frames, the scopes, the schemes, the errors |
-| [`spec/`](spec) | the normative JSON Schemas and the frame registry |
-| `crates/conduit-protocol` | the frames, the scopes, the grants, the replay ring |
-| `crates/conduit-broker` | the relay: the registry, the grants, the scope check, the ring |
-| `crates/conduit-client` | the far end: a typed client over a `conduit://` address |
-| `crates/conduit-native-host` | the Safari near end: a native host that holds the socket |
-| `clients/shared/sealing.js` | the sealing, in the browser: the same scheme as the Rust |
-| `clients/shared/near-end.js` | the tunnel machinery, for any surface: the plug a surface drops into |
-| `clients/shared/surface-browser.js` | the first surface: the tab in front of the user |
-| `clients/shared/surface-windows.js` | the second surface: the windows the browser has open |
-| `clients/chromium-mv3`, `clients/safari-mv3` | the extension clients |
+pair once => the extension asks the broker for a code, the user approves it on the broker's own page, the extension gets a 256-bit secret bound to exactly those scopes.
 
-## The three adjectives
+![Pairing an extension](docs/diagrams/pairing.svg)
 
-**Typed.**  Every frame names its type and the schema of its payload, and
-the schema is a reverse-DNS identifier with a version — `dev.conduit.mail.message/v1`,
-the shape MCP uses for its extensions.  An unknown frame type is refused,
-not ignored.
+then both ends open a websocket to the broker and say hello. hello carries a public key + the last `seq` seen; on reconnect the broker replays what you missed from a ring of the last 256 frames. payloads stay sealed end to end and the broker refuses anything outside the grant.
 
-**Scoped.**  A surface offers scopes (`mail.compose.read`,
-`mail.compose.write`); the *user* grants a subset; the broker holds the
-grant; a subscription outside the grant is refused **with the scope
-named**, and a frame outside the grant is dropped and counted.
+![A session](docs/diagrams/session.svg)
 
-**Schemed.**  Two schemes.  The address: `conduit://<surface>/<channel>@v1`,
-so a client may hold a URI and nothing else.  The encryption: the payload
-is sealed between the two ends, and the broker never opens it.
+## typed, scoped, schemed
 
-## The surfaces
+- typed => every frame names a versioned reverse-dns schema, e.g. `dev.conduit.mail.message/v1`. unknown frame type: refused.
+- scoped => a surface offers scopes (`mail.compose.read`), the user grants a subset, the broker enforces it. out of grant: refused, with the missing scope named.
+- schemed => address is `conduit://<surface>/<channel>@v1`. seal is `p256-aes256gcm/v1` (ecdh p-256, hkdf-sha256, aes-256-gcm); the broker never opens it.
 
-A surface is a module — an identifier, a channel, a schema, a scope, and
-a read — and `clients/shared/near-end.js` carries it.  The tunnel
-machinery knows nothing about what it carries, and a read that says
-there is nothing publishes nothing.
+rust in `crates/`, chromium + safari extensions in `clients/`, json schemas in `spec/`, app survey in `docs/research/`.
 
-| surface | channel | schema | scope | reads |
-|---|---|---|---|---|
-| `dev.conduit.browser.tabs/v1` | `tabs` | `dev.conduit.browser.tab/v1` | `browser.tabs.read` | the tab in front of the user |
-| `dev.conduit.browser.windows/v1` | `windows` | `dev.conduit.browser.window/v1` | `browser.windows.read` | the windows the browser has open |
+## the surfaces
 
-The next surfaces are the ones the research names: a Mail adapter behind
-`dev.conduit.mail.compose/v1`, and a desktop-app adapter.  They are
-written per app family — the near end is not.
+a surface is a module: an id, a channel, the schemas it may carry, the scopes it asks for, and a read. the tunnel machinery in `clients/shared/near-end.js` carries any surface and knows nothing about what it carries, so a new surface is a new module and not a new tunnel.
 
-## Running it
+| surface | module | what it publishes |
+|---|---|---|
+| the browser tab | `clients/shared/surface-browser.js` | the url + title of the tab in front of the user |
+| the browser windows | `clients/shared/surface-windows.js` | the windows the browser has open, and how many tabs each holds |
+
+a surface never publishes a stand-in: when the read says there is nothing, nothing is published. the next surfaces are the ones the research names, one module each: mail compose, mail action, the finder sync extension, and the rest.
+
+## run it
 
 ```sh
-cargo test --workspace              # the protocol, the broker, the client
-node --test clients/shared/*.test.js # the surfaces, in node
-node scripts/browser-test.mjs       # the sealing, in a real browser
-node scripts/assemble-clients.mjs   # copy the shared near end into each client
-node scripts/extension-e2e.mjs      # the extension and a far end, end to end
+cargo test --workspace
+node --test clients/shared/*.test.js
+node --test clients/shared/*.test.js # the surfaces, and the sealing
+node scripts/browser-test.mjs       # sealing, in real Chromium
+scripts/e2e/run.sh                  # broker + extension in chromium + rust client, end to end
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
+node scripts/build-extension.mjs    # => target/extension/{chromium,safari}-mv3, load unpacked
 ```
 
-The broker's bootstrap carries the browser tabs surface the shipped
-extension offers (`dev.conduit.browser.tabs/v1`) and the mail shape the
-research names (`dev.conduit.mail.compose/v1`), each with a grant and
-one shared token.
+## status
 
-## The state of it, honestly
+shipped + tested: protocol, broker, client lib, safari native host, both extensions, two surfaces (the browser tab and the browser windows). rust and browser sealing match byte for byte on a shared test vector.
 
-**Built and tested:** the protocol and its schemas, the broker's registry,
-grants, scope enforcement and replay ring, the device flow, the client
-library, the native host, the two extension clients, and the first
-surface — the browser tab.  The broker and the client library are tested
-against each other over real sockets, with the payload sealed end to end.
+not built: adapters for mail, desktop apps, anything past the browser. each app family needs its own; the plan is in [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md).
 
-**The extension, in a real browser.**  `scripts/extension-e2e.mjs` loads
-the Chromium client into a real Chromium, opens the tunnel to a local
-broker through the extension's own toggle, and shows the Rust far end
-opening a sealed frame carrying the real tab.  Three defects were found
-by that run and are fixed: the extension did not present its secret on
-the connection, it sealed frames under the peer's nonce prefix instead
-of its own, and the shared near end was never assembled into the
-extension directory.  The run covers Chromium; the Safari client and its
-native host are tested at the socket level and have not been loaded into
-Safari.
+verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
 
-**The sealing works.**  The scheme is `p256-aes256gcm/v1`: ECDH over
-P-256, HKDF-SHA256 into two directional keys, and AES-256-GCM under a
-nonce that carries the sequence number.  The browser and the Rust are
-checked against the same vector, and the browser half runs in a real
-Chromium, because Node's WebCrypto cannot import the key the vector
-needs.  The ciphertext is the same byte for byte on both sides.
+not verified: safari. it can't be driven here; the safari build shares `background.js` and has not run in a browser.
 
-**Not built:** the other surfaces.  There is a browser tab, and no Mail
-adapter and no desktop-app adapter yet — the pieces that know how to read
-a message inside an app.  They are the part that has to be written per
-app family, and they are the reason the research came first.
+## why research first
 
-**Not verified in Safari:** the native-host path.  Chromium's near end
-holds the socket itself and is verified end to end; Safari's near end
-hands the socket to the native host, which is tested over real sockets
-but has not been driven from Safari itself.
+chromium and safari decided most of this. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
 
-**Not decided:** whether the broker may ever see a payload (today: no),
-whether a grant may be delegated (today: no), and how a surface's schema
-set is published (today: the extension declares it).
+## license
 
-## Why the research came first
-
-Because the platforms decide the design, not the other way round:
-
-* a Chromium service worker is killed after 30 seconds of silence, so the
-  near end pings every 20 seconds and resumes by sequence number;
-* a Safari background page is unloaded after about 30 seconds, and its
-  WebSocket to `127.0.0.1` is broken, so on Safari the near end is a
-  **native host** that holds the socket;
-* MCP's extensions framework already has the two ideas worth copying — the
-  reverse-DNS identifier and the `ui://` scheme — and the one worth
-  refusing: a request/response protocol with an open transaction does not
-  survive a worker that dies every thirty seconds.
-
-The sources are at the end of
-[`docs/research/extension-surfaces.md`](docs/research/extension-surfaces.md),
-and the claims that were not checked are marked as such.
-
-## Licence
-
-MIT or Apache-2.0, at your option.  See [`LICENSE-MIT`](LICENSE-MIT) and
-[`LICENSE-APACHE`](LICENSE-APACHE).
+MIT or Apache-2.0, your pick. [`LICENSE`](LICENSE), [`LICENSE-APACHE`](LICENSE-APACHE)

@@ -11,22 +11,22 @@ a claim: nothing here counts as done until its gate is green.
 
 ## 1. The health check this plan stands on
 
-Run on 2026-11-18 on macOS (arm64), at the commit this plan is filed
+Run on 2026-11-19, on Linux (x86-64), at the commit this plan is filed
 against:
 
 | gate | command | result |
 |---|---|---|
-| the protocol, broker and client | `cargo test --workspace` | **35 passed, 0 failed** (the adapter contract added 4) |
-| the surfaces, in node | `node --test clients/shared/*.test.js` | **19 passed, 0 failed** (the windows surface added 7) |
+| the protocol, broker and client | `cargo test --workspace` | **50 passed, 0 failed** |
+| the surfaces, in node | `node --test clients/shared/*.test.js` | **23 passed, 0 failed** |
 | the sealing, in a real browser | `node scripts/browser-test.mjs` | **5 passed, 0 failed** — the browser's ciphertext is the one the Rust seals, byte for byte |
-| the extension, end to end | `node scripts/extension-e2e.mjs` | **PASS** — a real Chromium, the extension's own toggle, the Rust far end opening a sealed tab frame |
+| the whole system, end to end | `scripts/e2e/run.sh` | **33 checks passed, 0 failed** — a real Chromium, the real extension, the device flow on the broker's own page, and the Rust far end opening a sealed tab and a sealed window |
 
 The repository had no `package.json`, so the browser test could not run
-at all on a fresh clone.  It now has a minimal one: playwright is a
-devDependency, and the two node commands above are its scripts.  That is
-a health fix, not a feature.
+at all on a fresh clone.  It now has a minimal one: `"type": "module"`,
+and the node commands above as its scripts.  That is a health fix, not a
+feature.
 
-**Every phase below lands only while these three gates stay green.**  A
+**Every phase below lands only while these four gates stay green.**  A
 phase that turns one red is not landed.
 
 ---
@@ -45,11 +45,13 @@ projects will stand on.
    a sealed frame from the tab surface.
 
 2. **The research gaps closed.**  `docs/research/extension-surfaces.md` §6
-   lists the surfaces known but **not checked** — Audio Units, Raycast
+   listed the surfaces known but **not checked** — Audio Units, Raycast
    extensions, Home Assistant, the Docker socket, the Chrome DevTools
    Protocol, and the rest.  Each stays marked *not checked* until it has
    a source.  *Gate:* every row in §6 and every *not checked* row in the
-   catalogue either carries a source or is deleted.
+   catalogue either carries a source or is deleted.  **Done:** §6 is now
+   the second pass, every row sourced, and the catalogue leads with the
+   top twenty apps.
 
 3. **The near end becomes a plug, not a copy.**  Today the tunnel loop,
    the ping, the backoff, the resume and the sealing live inside
@@ -106,7 +108,7 @@ through the app's own surface; Conduit carries its frames.
 | phase | what lands | gate | state |
 |---|---|---|---|
 | **P0 — health** | `package.json`, playwright as a devDependency, the three commands above recorded and green | the table in §1 | **landed** |
-| **P1 — the browser run** | `scripts/extension-e2e.mjs`: broker + chromium-mv3 loaded + a far end; one sealed frame observed | the e2e script exits 0 and prints the received frame | **landed** — three defects fell out of it and are fixed |
+| **P1 — the browser run** | the e2e harness: broker + chromium-mv3 loaded + a far end; one sealed frame observed | the e2e script exits 0 and prints the received frame | **landed** — three defects fell out of it and are fixed |
 | **P2 — the research gaps** | every §6 and *not checked* row sourced or deleted | no `not checked` left in either research document | **landed** |
 | **P3 — the surface plug** | `clients/shared/near-end.js`, surfaces as modules, the tab surface moved onto it | node suite green; a second surface registered and tested | **landed** |
 | **P4 — the second surface** | the window surface (`dev.conduit.browser.windows/v1`), its scopes | its tests green in the same run as the tab surface | **landed** — 7 tests, its grant in the broker bootstrap |
@@ -122,7 +124,8 @@ P5 is last because the trait is shaped by what P3–P4 teach.
 
 * **No mock data anywhere.**  A surface that cannot read real state
   publishes nothing; it does not publish a placeholder.  A row without a
-  source says *not checked*; it is not cited.
+  source is not in the catalogue at all; there are no *not checked* rows
+  left in either research document.
 * **The three gates run before every commit.**  A commit that cannot run
   them says so in its message.
 * **The near end may not grow a second copy of the tunnel loop.**  If a
@@ -137,7 +140,7 @@ P5 is last because the trait is shaped by what P3–P4 teach.
 
 ## 6. Not in this plan
 
-The hosted broker, the device flow's UX in a real browser, the Safari
-extension run on a real Mac (P1 covers Chromium only; Safari's native
-host is already tested at the socket level), and every adapter after the
-first one.  Those are later work and they stand on what this plan lands.
+The hosted broker, the Safari extension run on a real Mac (P1 covers
+Chromium only; Safari's native host is already tested at the socket
+level), and every adapter after the first one.  Those are later work and
+they stand on what this plan lands.

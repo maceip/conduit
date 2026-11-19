@@ -202,7 +202,11 @@ async fn a_subscription_for_a_scope_that_was_not_granted_is_refused() {
         "s": "dev.conduit.subscribe/v1",
         "c": "mail.messages",
         "seq": 0,
-        "scopes": ["mail.compose.write"],
+        "p": serde_json::json!({
+            "channel": "mail.messages",
+            "scopes": ["mail.compose.write"],
+        })
+        .to_string(),
     })
     .to_string();
     client
@@ -252,7 +256,11 @@ async fn a_subscription_for_a_scope_that_was_granted_goes_through() {
         "s": "dev.conduit.subscribe/v1",
         "c": "mail.messages",
         "seq": 0,
-        "scopes": ["mail.compose.read"],
+        "p": serde_json::json!({
+            "channel": "mail.messages",
+            "scopes": ["mail.compose.read"],
+        })
+        .to_string(),
     })
     .to_string();
     client
@@ -287,4 +295,226 @@ async fn an_extension_with_the_wrong_secret_is_refused() {
         refusal.contains("unauthorized"),
         "the wrong secret is refused: {refusal}"
     );
+}
+
+#[tokio::test]
+async fn frames_over_200_per_second_are_dropped_and_the_socket_stays_open() {
+    let address = broker().await;
+
+    let (mut extension, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=extension&surface=dev.conduit.mail.compose%2Fv1&secret=secret"
+    ))
+    .await
+    .expect("the extension connects");
+    extension
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    read_until(&mut extension, "welcome").await;
+
+    let (mut client, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=client&surface=dev.conduit.mail.compose%2Fv1&token=token"
+    ))
+    .await
+    .expect("the client connects");
+    client
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    read_until(&mut client, "welcome").await;
+
+    let publish = |seq: u64| {
+        serde_json::to_string(&Frame {
+            kind: FrameType::Publish,
+            schema: SchemaId::new("dev.conduit.mail.message", 1),
+            channel: "compose".to_string(),
+            call: None,
+            seq,
+            payload: Some("x".to_string()),
+        })
+        .expect("a frame is JSON")
+    };
+    for seq in 1..=300 {
+        extension
+            .send(Message::Text(publish(seq)))
+            .await
+            .expect("the frame goes");
+    }
+
+    let mut received = 0;
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(std::time::Duration::from_millis(500), client.next()).await
+    {
+        if let Message::Text(text) = message {
+            if text.contains("\"publish\"") {
+                received += 1;
+            }
+        }
+    }
+    assert!(
+        (180..=240).contains(&received),
+        "about 200 of 300 frames cross, got {received}"
+    );
+
+    // The socket is still open: after a second the bucket is full again.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    extension
+        .send(Message::Text(publish(301)))
+        .await
+        .expect("the socket is open");
+    let text = read_until(&mut client, "\"publish\"").await;
+    assert!(
+        text.contains("301"),
+        "a frame crosses after the refill: {text}"
+    );
+}
+
+type Socket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// An extension that has said hello and been welcomed.
+async fn extension_end(address: &str) -> Socket {
+    let (mut extension, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=extension&surface=dev.conduit.mail.compose%2Fv1&secret=secret"
+    ))
+    .await
+    .expect("the extension connects");
+    extension
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    read_until(&mut extension, "welcome").await;
+    extension
+}
+
+/// A client with that token, after its hello.
+async fn client_end(address: &str, token: &str) -> Socket {
+    let (mut client, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=client&surface=dev.conduit.mail.compose%2Fv1&token={token}"
+    ))
+    .await
+    .expect("the client connects");
+    client
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    client
+}
+
+/// Whether the socket is closed within a second.
+async fn closes(socket: &mut Socket) -> bool {
+    let deadline = std::time::Duration::from_secs(1);
+    loop {
+        match tokio::time::timeout(deadline, socket.next()).await {
+            Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => return true,
+            Ok(Some(Ok(_))) => continue,
+            Err(_) => return false,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_client_whose_token_does_not_cover_the_surface_is_refused() {
+    let address = broker().await;
+    let _extension = extension_end(&address).await;
+    let mut client = client_end(&address, "not-a-token").await;
+    let refusal = read_until(&mut client, "error").await;
+    assert!(refusal.contains("unauthorized"), "{refusal}");
+    assert!(closes(&mut client).await, "the socket is closed after");
+}
+
+#[tokio::test]
+async fn a_client_with_no_extension_there_is_told_so() {
+    let address = broker().await;
+    let mut client = client_end(&address, "token").await;
+    let refusal = read_until(&mut client, "error").await;
+    assert!(refusal.contains("surface_unknown"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_client_publish_without_write_in_the_grant_is_refused() {
+    let address = broker().await;
+    let mut extension = extension_end(&address).await;
+    let mut client = client_end(&address, "token").await;
+    read_until(&mut client, "welcome").await;
+
+    let publish = serde_json::to_string(&Frame {
+        kind: FrameType::Publish,
+        schema: SchemaId::new("dev.conduit.mail.message", 1),
+        channel: "compose".to_string(),
+        call: None,
+        seq: 1,
+        payload: Some("c2VhbGVk".to_string()),
+    })
+    .expect("a frame is JSON");
+    client
+        .send(Message::Text(publish))
+        .await
+        .expect("the publish goes");
+    let refusal = read_until(&mut client, "scope_denied").await;
+    assert!(refusal.contains("mail.compose.write"), "{refusal}");
+
+    // The extension saw the client's hello, and nothing after it.
+    read_until(&mut extension, "hello").await;
+    let more = tokio::time::timeout(std::time::Duration::from_millis(300), extension.next()).await;
+    assert!(more.is_err(), "the refused publish didn't cross: {more:?}");
+}
+
+#[tokio::test]
+async fn a_granted_subscription_is_answered_with_subscribed() {
+    let address = broker().await;
+    let _extension = extension_end(&address).await;
+    let mut client = client_end(&address, "token").await;
+    read_until(&mut client, "welcome").await;
+    let subscribe = serde_json::json!({
+        "t": "subscribe",
+        "s": "dev.conduit.subscribe/v1",
+        "c": "compose",
+        "seq": 1,
+        "p": serde_json::json!({ "channel": "compose", "scopes": ["mail.compose.read"] }).to_string(),
+    })
+    .to_string();
+    client
+        .send(Message::Text(subscribe))
+        .await
+        .expect("the subscription goes");
+    let answer = read_until(&mut client, "subscribed").await;
+    assert!(answer.contains("mail.compose.read"), "{answer}");
+}
+
+#[tokio::test]
+async fn when_the_extension_leaves_its_client_is_closed() {
+    let address = broker().await;
+    let mut extension = extension_end(&address).await;
+    let mut client = client_end(&address, "token").await;
+    read_until(&mut client, "welcome").await;
+    extension.close(None).await.expect("the extension leaves");
+    assert!(closes(&mut client).await, "the client is closed with it");
+}
+
+#[tokio::test]
+async fn a_second_client_attaches_after_the_first_leaves_and_gets_the_extension_hello() {
+    let address = broker().await;
+    let mut extension = extension_end(&address).await;
+
+    let mut first = client_end(&address, "token").await;
+    read_until(&mut first, "welcome").await;
+    read_until(&mut first, "hello").await;
+
+    // While the first holds the tunnel, a second is turned away.
+    let mut second = client_end(&address, "token").await;
+    let refusal = read_until(&mut second, "error").await;
+    assert!(refusal.contains("another client"), "{refusal}");
+
+    first.close(None).await.expect("the first leaves");
+    let _ = closes(&mut first).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let mut third = client_end(&address, "token").await;
+    read_until(&mut third, "welcome").await;
+    read_until(&mut third, "hello").await;
+
+    // And the extension heard the new client's hello.
+    read_until(&mut extension, "hello").await;
+    read_until(&mut extension, "hello").await;
 }

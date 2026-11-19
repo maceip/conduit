@@ -40,7 +40,7 @@ export const TO_CLIENT = "conduit:client->extension";
 
 function requireWebCrypto() {
   if (!subtle) {
-    throw new Error("this browser has no WebCrypto");
+    throw new Error("no WebCrypto in this browser");
   }
   return subtle;
 }

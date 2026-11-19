@@ -3,7 +3,7 @@
 node_modules/
 
 # The assembled extension clients: build output of
-# scripts/assemble-clients.mjs, copied out of clients/shared.
+# scripts/build-extension.mjs, copied out of clients/shared.
 /clients/chromium-mv3/background.js
 /clients/chromium-mv3/near-end.js
 /clients/chromium-mv3/sealing.js

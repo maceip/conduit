@@ -1,0 +1,12 @@
+{
+  "name": "conduit-e2e",
+  "private": true,
+  "type": "module",
+  "description": "the whole system end to end: real broker, real chromium with the real extension, real rust client",
+  "scripts": {
+    "e2e": "node run.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}

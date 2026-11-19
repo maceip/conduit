@@ -1,0 +1,5 @@
+graph LR
+  E[extension] -->|publish/result| B[broker]
+  B -->|publish/result| C[client]
+  C -->|subscribe/call| B
+  B -->|subscribe/call| E

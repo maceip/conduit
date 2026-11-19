@@ -51,8 +51,9 @@ impl Device {
 #[derive(Default)]
 pub struct Devices {
     codes: RwLock<HashMap<String, Device>>,
-    /// The secrets the broker has given out, by secret.
-    secrets: RwLock<HashMap<String, SchemaId>>,
+    /// The secrets the broker has given out, by secret: the surface and
+    /// the instance the user approved them for.
+    secrets: RwLock<HashMap<String, (SchemaId, String)>>,
 }
 
 impl Devices {
@@ -109,10 +110,10 @@ impl Devices {
                 OsRng.fill_bytes(&mut bytes);
                 let secret = base64_url::encode(&bytes);
                 device.secret = Some(secret.clone());
-                self.secrets
-                    .write()
-                    .await
-                    .insert(secret.clone(), device.surface.clone());
+                self.secrets.write().await.insert(
+                    secret.clone(),
+                    (device.surface.clone(), instance.to_string()),
+                );
                 secret
             }
         };
@@ -127,6 +128,15 @@ impl Devices {
 
     /// The surface a secret speaks for.
     pub async fn surface_of(&self, secret: &str) -> Option<SchemaId> {
+        self.credential(secret).await.map(|(surface, _)| surface)
+    }
+
+    /// The surface and the instance a secret speaks for.
+    ///
+    /// The instance is bound to the secret when the secret is given out,
+    /// so an extension can't claim another instance's grant by naming it
+    /// in the tunnel request.
+    pub async fn credential(&self, secret: &str) -> Option<(SchemaId, String)> {
         self.secrets.read().await.get(secret).cloned()
     }
 

@@ -240,6 +240,22 @@ pub fn random_prefix() -> [u8; NONCE_PREFIX] {
     prefix
 }
 
+/// Bytes for the hello (a public key or a nonce prefix), as base64url
+/// without padding: the same encoding as the sealed blob, and the one the
+/// browser extension uses.
+pub fn to_wire(bytes: &[u8]) -> String {
+    base64_url::encode(bytes)
+}
+
+/// The bytes of a hello field, from base64url without padding. Anything
+/// else, hex included, is refused.
+pub fn from_wire(text: &str) -> Option<Vec<u8>> {
+    if text.contains('=') {
+        return None;
+    }
+    base64_url::decode(text).ok()
+}
+
 /// The public key of a secret key, as hex.
 pub fn public_key_hex<const N: usize>(bytes: &[u8; N]) -> String {
     let mut text = String::with_capacity(64);
@@ -247,18 +263,4 @@ pub fn public_key_hex<const N: usize>(bytes: &[u8; N]) -> String {
         text.push_str(&format!("{byte:02x}"));
     }
     text
-}
-
-/// Key material, as base64url without padding.
-///
-/// The hello carries the public key and the nonce prefix this way: the
-/// same encoding as the sealed blob, so a frame has one encoding and
-/// not two.
-pub fn bytes_to_base64url<const N: usize>(bytes: &[u8; N]) -> String {
-    base64_url::encode(bytes)
-}
-
-/// The bytes of that key material.
-pub fn bytes_from_base64url(text: &str) -> Option<Vec<u8>> {
-    base64_url::decode(text).ok()
 }

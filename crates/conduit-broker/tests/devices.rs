@@ -219,3 +219,82 @@ async fn the_extension_presents_its_secret_and_the_broker_accepts_it() {
         "the secret opened the tunnel: {welcome}"
     );
 }
+
+#[tokio::test]
+async fn the_approve_button_on_the_page_approves_the_code() {
+    let address = broker().await;
+    let reply = reqwest::Client::new()
+        .post(format!("{address}/v1/device/code"))
+        .json(&serde_json::json!({
+            "surface": "dev.conduit.browser.tabs/v1",
+            "scopes": ["browser.tabs.read"],
+        }))
+        .send()
+        .await
+        .expect("the request goes");
+    let body: serde_json::Value = reply.json().await.expect("the reply is JSON");
+    let code = body["code"].as_str().expect("a code").to_string();
+
+    // The page's form posts the code form-encoded, to the page itself.
+    let page = reqwest::Client::new()
+        .post(format!("{address}/v1/device/approve-page"))
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(format!("code={code}"))
+        .send()
+        .await
+        .expect("the request goes");
+    assert_eq!(page.status(), 200);
+    assert!(page.text().await.expect("the page").contains("approved"));
+
+    let reply = reqwest::Client::new()
+        .post(format!("{address}/v1/device/secret"))
+        .json(&serde_json::json!({"code": code, "instance": "ext-1"}))
+        .send()
+        .await
+        .expect("the request goes");
+    assert_eq!(
+        reply.status(),
+        200,
+        "the secret is there after the page approved it"
+    );
+}
+
+#[tokio::test]
+async fn the_page_does_not_render_markup_from_the_request() {
+    let address = broker().await;
+    let reply = reqwest::Client::new()
+        .post(format!("{address}/v1/device/code"))
+        .json(&serde_json::json!({
+            "surface": "dev.conduit.browser.tabs/v1",
+            "scopes": ["<script>alert(1)</script>.read"],
+        }))
+        .send()
+        .await
+        .expect("the request goes");
+    let body: serde_json::Value = reply.json().await.expect("the reply is JSON");
+    let url = body["url"].as_str().expect("a url").to_string();
+    let text = reqwest::get(format!("{address}{url}"))
+        .await
+        .expect("the page")
+        .text()
+        .await
+        .expect("the page");
+    assert!(!text.contains("<script>"), "{text}");
+    assert!(text.contains("&lt;script&gt;"), "{text}");
+}
+
+#[tokio::test]
+async fn the_secret_carries_its_instance_so_the_query_cannot_pick_another_grant() {
+    let devices = conduit_broker::Devices::new();
+    let code = devices
+        .ask(
+            SchemaId::new("dev.conduit.browser.tabs", 1),
+            vec![conduit_protocol::Scope::new("browser.tabs", "read")],
+        )
+        .await;
+    devices.approve(&code).await.expect("approved");
+    let (secret, _) = devices.secret(&code, "ext-1").await.expect("the secret");
+    let (surface, instance) = devices.credential(&secret).await.expect("known");
+    assert_eq!(surface.to_string(), "dev.conduit.browser.tabs/v1");
+    assert_eq!(instance, "ext-1");
+}
