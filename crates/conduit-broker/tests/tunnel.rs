@@ -151,7 +151,7 @@ async fn a_frame_from_the_extension_crosses_to_the_client() {
         channel: "mail.messages".to_string(),
         call: None,
         seq: 7,
-        payload: Some("c2VhbGVk".to_string()),
+        payload: Some(serde_json::Value::String("c2VhbGVk".to_string())),
     })
     .expect("a frame is JSON");
     extension
@@ -163,7 +163,10 @@ async fn a_frame_from_the_extension_crosses_to_the_client() {
     let frame: Frame = serde_json::from_str(&crossed).expect("the frame is JSON");
     assert_eq!(frame.kind, FrameType::Publish);
     assert_eq!(frame.channel, "mail.messages");
-    assert_eq!(frame.payload.as_deref(), Some("c2VhbGVk"));
+    assert_eq!(
+        frame.payload.as_ref().and_then(|body| body.as_str()),
+        Some("c2VhbGVk")
+    );
     assert_eq!(
         frame.seq, 7,
         "the broker keeps the sequence number of the end that sent the frame"
@@ -330,7 +333,7 @@ async fn frames_over_200_per_second_are_dropped_and_the_socket_stays_open() {
             channel: "compose".to_string(),
             call: None,
             seq,
-            payload: Some("x".to_string()),
+            payload: Some(serde_json::Value::String("x".to_string())),
         })
         .expect("a frame is JSON")
     };
@@ -444,7 +447,7 @@ async fn a_client_publish_without_write_in_the_grant_is_refused() {
         channel: "compose".to_string(),
         call: None,
         seq: 1,
-        payload: Some("c2VhbGVk".to_string()),
+        payload: Some(serde_json::Value::String("c2VhbGVk".to_string())),
     })
     .expect("a frame is JSON");
     client

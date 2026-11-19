@@ -66,7 +66,7 @@ export async function connect(options) {
           s: "dev.conduit.hello/v1",
           c: channel,
           seq: nextSequence(),
-          p: JSON.stringify({
+          p: {
             role: "client",
             surface,
             resume: 0,
@@ -75,7 +75,7 @@ export async function connect(options) {
               public: toBase64Url(keys.publicBytes),
               prefix: toBase64Url(prefix),
             },
-          }),
+          },
         }),
       );
     });
@@ -112,7 +112,7 @@ export async function connect(options) {
   }
 
   async function handle(data) {
-    const frame = JSON.parse(data);
+    const frame = typeof data === "string" ? JSON.parse(data) : data;
     if (frame.t === "welcome") {
       if (onReady) {
         onReady();
@@ -127,14 +127,16 @@ export async function connect(options) {
       return;
     }
     if (frame.t === "hello") {
-      // The other end said hello: agree the keys of the tunnel.
-      const hello = JSON.parse(frame.p);
+      // The other end said hello: agree the keys of the tunnel.  The
+      // payload is JSON: the envelope carries JSON, not a string of
+      // JSON that has to be parsed again.
+      const hello = frame.p;
       const shared = await agree(keys.privateKey, fromBase64Url(hello.crypto.public));
       tunnel = shared;
       peerPrefix = fromBase64Url(hello.crypto.prefix);
       // The frames that came before are opened now.
       for (const early of pending.splice(0)) {
-        await handle(JSON.stringify(early));
+        await handle(early);
       }
       socket.send(
         JSON.stringify({
@@ -142,7 +144,7 @@ export async function connect(options) {
           s: "dev.conduit.subscribe/v1",
           c: channel,
           seq: nextSequence(),
-          p: JSON.stringify({ channel, scopes }),
+          p: { channel, scopes },
         }),
       );
       if (onFrame) {

@@ -7,22 +7,27 @@
 //! down the moment the message is sent.  None of them can be trusted
 //! with a socket, and none of them should be trusted with a key.
 //!
-//! So the near end is a separate process.  The plugin inside the app
-//! speaks to it over a Unix socket, in plain JSON, one message at a
-//! time:
+//! So the near end is a separate process, and the plugin inside the app
+//! speaks to it over a Unix socket, over the loopback, or over the
+//! standard input and output of the process — which is what a browser's
+//! native messaging host is.
 //!
-//! ```text
-//! plugin  ->  {"op":"publish","schema":"dev.conduit.browser.tab/v1","payload":{…}}
-//! near end ->  {"op":"event","schema":"…","channel":"…","seq":7,"payload":{…}}
-//! ```
+//! **The hop between a plugin and the near end carries the same frames
+//! the tunnel carries.**  There is no second vocabulary.  A plugin
+//! publishes a frame whose payload is plaintext; the near end seals the
+//! payload and sends the frame on; a frame that comes back is opened
+//! and handed to the plugin as it was.  The near end is a seal adapter,
+//! not a translator.
 //!
-//! What the plugin publishes is plaintext on that socket, and plaintext
-//! on the socket to the broker is *not* what leaves: the near end seals
-//! it under the key of the tunnel.  The plugin never sees a key.
+//! There is one frame kind that the plugin may send and the tunnel
+//! does not have: `connect`, which says where the broker is and what
+//! secret may be presented on it.  It is how a plugin that did the
+//! device flow hands the result to the process that holds the socket.
 //!
-//! The near end does not know what the frames mean.  That is the
-//! point: the surface decides what it publishes, and the near end only
-//! carries it.
+//! A plugin does not wait for the tunnel to be up.  The near end holds
+//! what a plugin publishes until the two ends have agreed their keys,
+//! and then sends it.  The waiting happens once, here, and not in every
+//! plugin in every language.
 
 use conduit_protocol::end::{End, Role};
 use conduit_protocol::{Frame, FrameType, SchemaId};
@@ -30,6 +35,7 @@ use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{broadcast, mpsc};
@@ -50,6 +56,7 @@ pub struct Surface {
     #[serde(default)]
     pub scopes: Vec<String>,
     /// The Unix socket the plugin talks to.
+    #[serde(default)]
     pub socket: PathBuf,
     /// The port on the loopback the plugin may talk to instead.
     ///
@@ -78,7 +85,9 @@ impl Surface {
 /// The configuration of the near end.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    /// Where the broker is.
+    /// Where the broker is.  A plugin may say otherwise with a
+    /// `connect` frame.
+    #[serde(default)]
     pub broker: String,
     /// The instance of the tunnel: `extension` for a near end.
     #[serde(default = "the_default_instance")]
@@ -92,50 +101,29 @@ fn the_default_instance() -> String {
     "extension".to_string()
 }
 
-/// What the plugin says to the near end.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum FromPlugin {
-    /// Say where the broker is.
-    ///
-    /// Only the native mode needs this: a browser's native messaging
-    /// host is started by the browser, which knows the broker and the
-    /// secret the user approved, and the near end does not.
-    Connect {
-        broker: String,
-        secret: String,
-        instance: String,
-    },
-    /// Publish what the app knows.
-    Publish { schema: String, payload: Value },
-    /// Ask how the tunnel is.
-    Status,
-    /// A liveness check.
-    Ping,
+impl Config {
+    /// The secret of the first surface, for the native mode.
+    fn surfaces_secret(&self) -> String {
+        self.surfaces
+            .first()
+            .map(|surface| surface.secret.clone())
+            .unwrap_or_default()
+    }
 }
 
-/// What the near end says to the plugin.
-#[derive(Debug, Clone, Serialize)]
-#[serde(tag = "op", rename_all = "snake_case")]
-pub enum ToPlugin {
-    /// A frame from the client, opened.
-    Event {
-        schema: String,
-        channel: String,
-        seq: u64,
-        payload: Value,
-    },
-    /// How the tunnel is.
-    Status {
-        surface: String,
-        agreed: bool,
-        connected: bool,
-        seq: u64,
-    },
-    /// The liveness check, answered.
-    Pong,
-    /// Something went wrong.
-    Error { message: String },
+/// Where the plugins of a surface are.
+///
+/// A surface is carried either by a socket on the machine, by a socket
+/// on the loopback, or by the standard input and output of the process:
+/// the third is what a browser's native messaging host is, which is a
+/// pair of pipes.
+pub enum PluginSide {
+    /// A socket on the machine.
+    Unix(PathBuf),
+    /// A socket on the loopback, for a plugin in a web page.
+    Loopback(u16),
+    /// The standard input and output of this process.
+    Stdio,
 }
 
 /// The state of one surface's tunnel.
@@ -158,16 +146,15 @@ pub async fn run(config: Config) -> std::io::Result<()> {
         let secret = surface.secret.clone();
         let path = surface.socket.clone();
         let port = surface.tcp;
+        // A surface is carried on a socket on the machine, and on the
+        // loopback when the declaration says so: a plugin in a web
+        // page cannot open a socket on the machine.
+        let mut sides = vec![PluginSide::Unix(path)];
+        if let Some(port) = port {
+            sides.push(PluginSide::Loopback(port));
+        }
         tasks.push(tokio::spawn(async move {
-            carry(
-                surface,
-                broker,
-                secret,
-                instance,
-                PluginSide::Unix(path),
-                port,
-            )
-            .await
+            carry(surface, broker, secret, instance, sides).await
         }));
     }
     for task in tasks {
@@ -176,130 +163,348 @@ pub async fn run(config: Config) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Where the plugins of a surface are.
+/// Carry one surface over the standard input and output.
 ///
-/// A surface is carried either by a socket on the machine or by the
-/// standard input and output of the process: the second is what a
-/// browser's native messaging host is, which is a pair of pipes.
-pub enum PluginSide {
-    /// A socket on the machine.
-    Unix(PathBuf),
-    /// The standard input and output of this process.
-    Stdio,
+/// This is the mode a browser's native messaging host uses: the browser
+/// starts the process and speaks the local hop over its pipes.  The
+/// configuration may be empty, because the plugin says which surface it
+/// speaks for in its `connect` frame.
+pub async fn run_native(config: Config) -> std::io::Result<()> {
+    let secret = config.surfaces_secret();
+    let surface = config.surfaces.into_iter().next().unwrap_or(Surface {
+        id: String::new(),
+        channel: String::new(),
+        schemas: vec![],
+        scopes: vec![],
+        socket: PathBuf::new(),
+        tcp: None,
+        secret: String::new(),
+    });
+    carry(
+        surface,
+        config.broker,
+        secret,
+        config.instance,
+        vec![PluginSide::Stdio],
+    )
+    .await
+}
+
+/// What the plugins of one surface share.
+///
+/// The frames that come back from the broker are broadcast to every
+/// plugin.  The welcome is also state: a plugin that connects after
+/// the tunnel is up is told so, rather than waiting for a frame that
+/// has already gone by.
+#[derive(Clone)]
+struct Shared {
+    /// The frames that come back from the broker.
+    events: broadcast::Sender<Frame>,
+    /// The welcome, once the broker has sent it.
+    welcome: Arc<Mutex<Option<Frame>>>,
+}
+
+impl Shared {
+    /// Remember the welcome, and tell everybody who is listening.
+    fn welcome(&self, frame: Frame) {
+        if let Ok(mut welcome) = self.welcome.lock() {
+            *welcome = Some(frame.clone());
+        }
+        let _ = self.events.send(frame);
+    }
 }
 
 /// Carry one surface: the broker on one side, the plugins on the other.
 async fn carry(
-    surface: Surface,
+    mut surface: Surface,
     broker: String,
     secret: String,
     instance: String,
-    side: PluginSide,
-    tcp: Option<u16>,
+    sides: Vec<PluginSide>,
 ) -> std::io::Result<()> {
-    let (events, _) = broadcast::channel::<ToPlugin>(256);
-
-    // What the plugins publish, on its way to the broker.
-    let (publishes, mut from_plugins) = mpsc::channel::<FromPlugin>(64);
-
-    match &side {
-        PluginSide::Unix(path) => {
-            // A socket left over from a run that did not end well is
-            // removed first: otherwise the bind fails and the surface
-            // is dead for no reason.
-            if path.exists() {
-                let _ = std::fs::remove_file(path);
-            }
-            let listener = UnixListener::bind(path).map_err(|error| {
-                std::io::Error::other(format!(
-                    "the socket {} could not be bound ({error})",
-                    path.display()
-                ))
-            })?;
-            let accept_events = events.clone();
-            let accept_publishes = publishes.clone();
-            tokio::spawn(async move {
-                loop {
-                    let Ok((stream, _)) = listener.accept().await else {
-                        break;
-                    };
-                    let events = accept_events.clone();
-                    let publishes = accept_publishes.clone();
-                    tokio::spawn(async move {
-                        serve_plugin(stream, events, publishes).await;
-                    });
-                }
-            });
-        }
-        PluginSide::Stdio => {
-            let out_events = events.clone();
-            let out_publishes = publishes.clone();
-            tokio::spawn(async move {
-                serve_stdio(out_events, out_publishes).await;
-            });
-        }
-    }
-
-    // The loopback, for the plugins that cannot open a Unix socket: a
-    // web extension, a Figma iframe, a panel in an editor built on a
-    // web page.  The protocol is the same, but a web socket frames the
-    // messages itself.
-    if let Some(port) = tcp {
-        let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
-            .await
-            .map_err(|error| {
-                std::io::Error::other(format!("the port {port} could not be bound ({error})"))
-            })?;
-        let accept_events = events.clone();
-        let accept_publishes = publishes.clone();
-        tokio::spawn(async move {
-            loop {
-                let Ok((stream, _)) = listener.accept().await else {
-                    break;
-                };
-                let events = accept_events.clone();
-                let publishes = accept_publishes.clone();
-                tokio::spawn(async move {
-                    serve_web(stream, events, publishes).await;
-                });
-            }
-        });
-    }
-
-    // The broker.  In the native mode the near end does not know it
-    // yet: the browser says where it is, with the secret the user
-    // approved.
-    let (broker, secret, instance) = if broker.is_empty() {
-        let mut broker = String::new();
-        let mut secret = String::new();
-        let mut instance = String::new();
-        while broker.is_empty() {
-            let Some(message) = from_plugins.recv().await else {
-                return Ok(());
-            };
-            if let FromPlugin::Connect {
-                broker: said,
-                secret: said_secret,
-                instance: said_instance,
-            } = message
-            {
-                broker = said;
-                secret = said_secret;
-                instance = said_instance;
-            }
-        }
-        (broker, secret, instance)
-    } else {
-        (broker, secret, instance)
+    let (events, _) = broadcast::channel::<Frame>(256);
+    let shared = Shared {
+        events,
+        welcome: Arc::new(Mutex::new(None)),
     };
 
+    // What the plugins publish, on its way to the broker.
+    let (publishes, mut from_plugins) = mpsc::channel::<Frame>(64);
+
+    for side in &sides {
+        match side {
+            PluginSide::Unix(path) => {
+                // A socket left over from a run that did not end well is
+                // removed first: otherwise the bind fails and the surface
+                // is dead for no reason.
+                if path.exists() {
+                    let _ = std::fs::remove_file(path);
+                }
+                let listener = UnixListener::bind(path).map_err(|error| {
+                    std::io::Error::other(format!(
+                        "the socket {} could not be bound ({error})",
+                        path.display()
+                    ))
+                })?;
+                let accept_events = shared.clone();
+                let accept_publishes = publishes.clone();
+                tokio::spawn(async move {
+                    loop {
+                        let Ok((stream, _)) = listener.accept().await else {
+                            break;
+                        };
+                        let events = accept_events.clone();
+                        let publishes = accept_publishes.clone();
+                        tokio::spawn(async move {
+                            serve_plugin(stream, events, publishes).await;
+                        });
+                    }
+                });
+            }
+            PluginSide::Stdio => {
+                let out_events = shared.clone();
+                let out_publishes = publishes.clone();
+                tokio::spawn(async move {
+                    serve_stdio(out_events, out_publishes).await;
+                });
+            }
+            PluginSide::Loopback(port) => {
+                let listener = tokio::net::TcpListener::bind(("127.0.0.1", *port))
+                    .await
+                    .map_err(|error| {
+                        std::io::Error::other(format!(
+                            "the port {port} could not be bound ({error})"
+                        ))
+                    })?;
+                let accept_events = shared.clone();
+                let accept_publishes = publishes.clone();
+                tokio::spawn(async move {
+                    loop {
+                        let Ok((stream, _)) = listener.accept().await else {
+                            break;
+                        };
+                        let events = accept_events.clone();
+                        let publishes = accept_publishes.clone();
+                        tokio::spawn(async move {
+                            serve_web(stream, events, publishes).await;
+                        });
+                    }
+                });
+            }
+        }
+    }
+
+    // The broker.  A plugin may say where it is, in a `connect` frame;
+    // the configuration is the answer until then.
+    let mut broker = broker;
+    let mut secret = secret;
+    let mut instance = instance;
+
+    // The keys of the tunnel.
+    let mut end = End::new(Role::Extension);
+    let mut writer: Option<Writer> = None;
+    let mut reader: Option<Reader> = None;
+
+    // What the plugins published before the tunnel was up.
+    let mut held: Vec<Frame> = Vec::new();
+
+    let mut state = State {
+        agreed: false,
+        connected: false,
+        seq: 0,
+    };
+
+    // The ping, every twenty seconds.
+    let mut ping = tokio::time::interval(std::time::Duration::from_secs(20));
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    // The attempt to reach the broker.  The near end is a long-lived
+    // process: the broker may not be there yet, and the network may
+    // drop.  Neither is a reason to die.
+    let mut retry = tokio::time::interval(std::time::Duration::from_millis(500));
+    retry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    loop {
+        tokio::select! {
+            _ = retry.tick(), if writer.is_none() => {
+                if broker.is_empty() {
+                    continue;
+                }
+                match open_the_tunnel(&broker, &surface, &secret, &instance, &mut end).await {
+                    Ok((new_writer, new_reader)) => {
+                        writer = Some(new_writer);
+                        reader = Some(new_reader);
+                        state.connected = true;
+                    }
+                    Err(_) => {
+                        // The broker is not there yet.  Try again.
+                    }
+                }
+            }
+            _ = ping.tick() => {
+                if let Some(writer) = writer.as_mut() {
+                    let pong = Frame {
+                        kind: FrameType::Ping,
+                        schema: SchemaId::new("dev.conduit.ping", 1),
+                        channel: surface.channel().to_string(),
+                        call: None,
+                        seq: 0,
+                        payload: None,
+                    };
+                    let text = serde_json::to_string(&pong).unwrap_or_default();
+                    if writer.send(text).await.is_err() {
+                        break;
+                    }
+                }
+            }
+            message = read_from_broker(&mut reader), if reader.is_some() => {
+                let Some(text) = message else {
+                    // The connection is gone.  The tunnel is over: a
+                    // new one needs new keys, and everything published
+                    // so far waits again.
+                    writer = None;
+                    reader = None;
+                    state.agreed = false;
+                    state.connected = false;
+                    end = End::new(Role::Extension);
+                    continue;
+                };
+                let mut frame: Frame = match serde_json::from_str(&text) {
+                    Ok(frame) => frame,
+                    Err(_) => continue,
+                };
+                // The hello of the client carries its public key.
+                if frame.kind == FrameType::Hello {
+                    if let Some(payload) = frame.payload.as_ref() {
+                        if end.meet(payload).is_ok() {
+                            state.agreed = true;
+                            // What the plugins published while there was
+                            // no key to seal it under goes now.
+                            let waiting = std::mem::take(&mut held);
+                            for frame in waiting {
+                                if send_to_broker(&mut writer, &surface, &mut end, frame, &mut state)
+                                    .await
+                                    .is_err()
+                                {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    continue;
+                }
+                // The broker's welcome: the tunnel is up.  The plugins
+                // are told, so a popup can say so.
+                if frame.kind == FrameType::Welcome {
+                    state.connected = true;
+                    shared.welcome(frame);
+                    continue;
+                }
+                // A ping is for the near end, not for the plugins.
+                if frame.kind == FrameType::Ping {
+                    continue;
+                }
+                // The broker's own traffic is not the plugins'
+                // business: the subscription of the client is between
+                // the client and the broker.
+                if !matches!(
+                    frame.kind,
+                    FrameType::Publish | FrameType::Result | FrameType::Error
+                ) {
+                    continue;
+                }
+                // What is left is opened under the key of the tunnel and
+                // handed to the plugins as it was.
+                if let Some(payload) = frame.payload.as_ref() {
+                    let blob = payload.as_str().unwrap_or_default().to_string();
+                    if let Ok(opened) = end.open(&blob, frame.seq) {
+                        frame.payload = Some(
+                            serde_json::from_slice(&opened).unwrap_or(Value::String(
+                                String::from_utf8_lossy(&opened).to_string(),
+                            )),
+                        );
+                    }
+                }
+                let _ = shared.events.send(frame);
+            }
+            Some(frame) = from_plugins.recv() => {
+                // A plugin may say where the broker is.
+                if frame.kind == FrameType::Connect {
+                    if let Some(payload) = frame.payload.as_ref() {
+                        // The plugin may say which surface it speaks
+                        // for: in the native mode there is no
+                        // configuration to say it.
+                        if let Some(id) = payload.get("surface").and_then(|value| value.as_str()) {
+                            surface.id = id.to_string();
+                        }
+                        if let Some(channel) =
+                            payload.get("channel").and_then(|value| value.as_str())
+                        {
+                            surface.channel = channel.to_string();
+                        }
+                        if let Some(said) = payload.get("broker").and_then(|value| value.as_str()) {
+                            broker = said.to_string();
+                            secret = payload
+                                .get("secret")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or_default()
+                                .to_string();
+                            instance = payload
+                                .get("instance")
+                                .and_then(|value| value.as_str())
+                                .unwrap_or("extension")
+                                .to_string();
+                            // The connection is made by the retry
+                            // branch, which tries again until the
+                            // broker answers.
+                            writer = None;
+                            reader = None;
+                            state.agreed = false;
+                            state.connected = false;
+                            end = End::new(Role::Extension);
+                            continue;
+                        }
+                    }
+                    continue;
+                }
+                // Only a publish is a publish: a plugin may not send
+                // anything else.
+                if frame.kind != FrameType::Publish {
+                    continue;
+                }
+                if !state.agreed {
+                    // There is no key to seal it under yet.  It waits
+                    // here, and the plugin does not have to know.
+                    held.push(frame);
+                    continue;
+                }
+                if send_to_broker(&mut writer, &surface, &mut end, frame, &mut state)
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Open the tunnel to the broker.
+async fn open_the_tunnel(
+    broker: &str,
+    surface: &Surface,
+    secret: &str,
+    instance: &str,
+    end: &mut End,
+) -> std::io::Result<(Writer, Reader)> {
     let separator = if broker.contains('?') { '&' } else { '?' };
     let url = format!(
         "{}{separator}role=extension&surface={}&secret={}&instance={}",
         broker,
         percent_encode(&surface.id),
-        percent_encode(&secret),
-        percent_encode(&instance)
+        percent_encode(secret),
+        percent_encode(instance)
     );
     let (socket, _) = tokio_tungstenite::connect_async(url.as_str())
         .await
@@ -308,154 +513,187 @@ async fn carry(
                 "the broker did not answer ({error}); the url was {url}"
             ))
         })?;
-    let (mut writer, mut reader) = socket.split();
+    let (writer, reader) = socket.split();
+    let mut writer = Writer { socket: writer };
+    let reader = Reader { socket: reader };
 
-    let mut end = End::new(Role::Extension);
+    // The hello, with the public key of this end.
     let hello = end.hello(&surface.id, surface.channel());
     let text = serde_json::to_string(&hello).unwrap_or_default();
-    writer
-        .send(tokio_tungstenite::tungstenite::Message::Text(text))
-        .await
-        .map_err(|error| std::io::Error::other(error.to_string()))?;
+    writer.send(text).await?;
+    Ok((writer, reader))
+}
 
-    // The ping, every twenty seconds.
-    let mut ping = tokio::time::interval(std::time::Duration::from_secs(20));
-    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-
-    let connected = true;
-    let mut state = State {
-        agreed: false,
-        connected: true,
-        seq: 0,
+/// Seal a frame and send it to the broker.
+async fn send_to_broker(
+    writer: &mut Option<Writer>,
+    surface: &Surface,
+    end: &mut End,
+    mut frame: Frame,
+    state: &mut State,
+) -> std::io::Result<()> {
+    let Some(writer) = writer.as_mut() else {
+        return Ok(());
     };
+    let payload = frame.payload.take().unwrap_or(Value::Null);
+    let body = payload.to_string();
+    let Ok((sequence, blob)) = end.seal(body.as_bytes()) else {
+        return Ok(());
+    };
+    frame.seq = sequence;
+    frame.payload = Some(Value::String(blob));
+    frame.channel = surface.channel().to_string();
+    state.seq = sequence;
+    let text = serde_json::to_string(&frame).unwrap_or_default();
+    writer.send(text).await
+}
 
-    // The plugins are told the tunnel is up, before the keys are
-    // agreed: a plugin that waits for this does not race the broker.
-    let _ = events.send(ToPlugin::Status {
-        surface: surface.id.clone(),
-        agreed: false,
-        connected,
-        seq: 0,
-    });
+/// The writing half of the socket to the broker.
+struct Writer {
+    socket: futures_util::stream::SplitSink<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        tokio_tungstenite::tungstenite::Message,
+    >,
+}
 
-    loop {
-        tokio::select! {
-            _ = ping.tick() => {
-                let pong = Frame {
-                    kind: FrameType::Ping,
-                    schema: SchemaId::new("dev.conduit.ping", 1),
-                    channel: surface.channel().to_string(),
-                    call: None,
-                    seq: 0,
-                    payload: None,
-                };
-                let text = serde_json::to_string(&pong).unwrap_or_default();
-                if writer.send(tokio_tungstenite::tungstenite::Message::Text(text)).await.is_err() {
-                    break;
-                }
-            }
-            message = reader.next() => {
-                let Some(Ok(message)) = message else { break };
-                let tokio_tungstenite::tungstenite::Message::Text(text) = message else {
-                    continue;
-                };
-                let frame: Value = match serde_json::from_str(&text) {
-                    Ok(frame) => frame,
-                    Err(_) => continue,
-                };
-                // The hello of the client carries its public key.
-                if frame["t"] == "hello" {
-                    if let Some(payload) = frame["p"].as_str() {
-                        if end.meet(payload).is_ok() {
-                            state.agreed = true;
-                            let _ = events.send(ToPlugin::Status {
-                                surface: surface.id.clone(),
-                                agreed: true,
-                                connected,
-                                seq: state.seq,
-                            });
-                        }
-                    }
-                    continue;
-                }
-                // A ping is not for the plugins.
-                if frame["t"] == "ping" {
-                    continue;
-                }
-                // Anything else is opened under the key of the tunnel and
-                // handed to the plugins as it was.
-                let schema = frame["s"].as_str().unwrap_or_default().to_string();
-                let channel = frame["c"].as_str().unwrap_or_default().to_string();
-                let sequence = frame["seq"].as_u64().unwrap_or(0);
-                let payload = match frame["p"].as_str() {
-                    Some(blob) => match end.open(blob, sequence) {
-                        Ok(opened) => serde_json::from_slice(&opened)
-                            .unwrap_or(Value::String(String::from_utf8_lossy(&opened).to_string())),
-                        Err(_) => continue,
-                    },
-                    None => Value::Null,
-                };
-                let _ = events.send(ToPlugin::Event {
-                    schema,
-                    channel,
-                    seq: sequence,
-                    payload,
-                });
-            }
-            Some(message) = from_plugins.recv() => {
-                match message {
-                    FromPlugin::Connect { .. } => {
-                        let _ = events.send(ToPlugin::Error {
-                            message: "the tunnel is already up".to_string(),
-                        });
-                    }
-                    FromPlugin::Publish { schema, payload } => {
-                        let body = serde_json::to_string(&payload).unwrap_or_default();
-                        let Ok((sequence, blob)) = end.seal(body.as_bytes()) else {
-                            let _ = events.send(ToPlugin::Error {
-                                message: "the tunnel has no key yet".to_string(),
-                            });
-                            continue;
-                        };
-                        let Some(schema) = SchemaId::parse_or_first(&schema) else {
-                            let _ = events.send(ToPlugin::Error {
-                                message: format!("that is not a schema id: {schema}"),
-                            });
-                            continue;
-                        };
-                        let frame = Frame {
-                            kind: FrameType::Publish,
-                            schema,
-                            channel: surface.channel().to_string(),
-                            call: None,
-                            seq: sequence,
-                            payload: Some(blob),
-                        };
-                        state.seq = sequence;
-                        let text = serde_json::to_string(&frame).unwrap_or_default();
-                        if writer.send(tokio_tungstenite::tungstenite::Message::Text(text)).await.is_err() {
-                            break;
-                        }
-                    }
-                    FromPlugin::Status => {
-                        let _ = events.send(ToPlugin::Status {
-                            surface: surface.id.clone(),
-                            agreed: state.agreed,
-                            connected,
-                            seq: state.seq,
-                        });
-                    }
-                    FromPlugin::Ping => {
-                        let _ = events.send(ToPlugin::Pong);
-                    }
-                }
+impl Writer {
+    /// Send one frame.
+    async fn send(&mut self, text: String) -> std::io::Result<()> {
+        self.socket
+            .send(tokio_tungstenite::tungstenite::Message::Text(text))
+            .await
+            .map_err(|error| std::io::Error::other(error.to_string()))
+    }
+}
+
+/// The reading half of the socket to the broker.
+struct Reader {
+    socket: futures_util::stream::SplitStream<
+        tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+    >,
+}
+
+/// Read one frame from the broker, if there is one waiting.
+async fn read_from_broker(reader: &mut Option<Reader>) -> Option<String> {
+    let reader = reader.as_mut()?;
+    let message = reader.socket.next().await?;
+    match message {
+        Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => Some(text),
+        _ => None,
+    }
+}
+
+/// Serve one plugin: read what it says, tell it what happens.
+async fn serve_plugin(stream: UnixStream, shared: Shared, publishes: mpsc::Sender<Frame>) {
+    let (mut reader, mut writer) = stream.into_split();
+    let (outgoing, mut outbox) = mpsc::channel::<Frame>(64);
+
+    // The writer.
+    tokio::spawn(async move {
+        while let Some(frame) = outbox.recv().await {
+            let body = serde_json::to_vec(&frame).unwrap_or_default();
+            if write_frame(&mut writer, &body).await.is_err() {
+                break;
             }
         }
+    });
+
+    // The tunnel may already be up: a plugin that comes late is told.
+    if let Some(welcome) = the_welcome(&shared) {
+        let _ = outgoing.send(welcome).await;
     }
-    if let PluginSide::Unix(path) = &side {
-        let _ = std::fs::remove_file(path);
+
+    // The events, as they turn up.
+    let mut events = shared.events.subscribe();
+    let event_out = outgoing.clone();
+    tokio::spawn(async move {
+        loop {
+            let message = match events.recv().await {
+                Ok(message) => message,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            };
+            if event_out.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // What the plugin says.
+    loop {
+        let Some(body) = read_frame(&mut reader).await else {
+            break;
+        };
+        let frame: Frame = match serde_json::from_slice(&body) {
+            Ok(frame) => frame,
+            Err(_) => continue,
+        };
+        if publishes.send(frame).await.is_err() {
+            break;
+        }
     }
-    Ok(())
+}
+
+/// Serve a plugin that came in over the loopback.
+///
+/// The protocol is the same, but a web socket frames the messages
+/// itself, so there is no length in front of them.
+async fn serve_web(stream: tokio::net::TcpStream, shared: Shared, publishes: mpsc::Sender<Frame>) {
+    let Ok(socket) = tokio_tungstenite::accept_async(stream).await else {
+        return;
+    };
+    let (mut writer, mut reader) = socket.split();
+    let (outgoing, mut outbox) = mpsc::channel::<Frame>(64);
+
+    tokio::spawn(async move {
+        while let Some(frame) = outbox.recv().await {
+            let text = serde_json::to_string(&frame).unwrap_or_default();
+            if writer
+                .send(tokio_tungstenite::tungstenite::Message::Text(text))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
+    // The tunnel may already be up: a plugin that comes late is told.
+    if let Some(welcome) = the_welcome(&shared) {
+        let _ = outgoing.send(welcome).await;
+    }
+
+    let mut events = shared.events.subscribe();
+    let event_out = outgoing.clone();
+    tokio::spawn(async move {
+        loop {
+            let message = match events.recv().await {
+                Ok(message) => message,
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            };
+            if event_out.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    while let Some(Ok(message)) = reader.next().await {
+        let tokio_tungstenite::tungstenite::Message::Text(text) = message else {
+            continue;
+        };
+        let frame: Frame = match serde_json::from_str(&text) {
+            Ok(frame) => frame,
+            Err(_) => continue,
+        };
+        if publishes.send(frame).await.is_err() {
+            break;
+        }
+    }
 }
 
 /// Serve the plugins that speak over the standard input and output.
@@ -471,7 +709,7 @@ async fn carry(
 /// workers blocked on the pipes, and nothing left to carry the frames.
 /// So both ends are read and written on the blocking pool, and the
 /// tunnel keeps its workers.
-async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sender<FromPlugin>) {
+async fn serve_stdio(shared: Shared, publishes: mpsc::Sender<Frame>) {
     use std::io::Read;
 
     // What the browser says.
@@ -508,11 +746,11 @@ async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sende
     let reader_publishes = publishes.clone();
     tokio::spawn(async move {
         while let Some(body) = from_browser.recv().await {
-            let message: FromPlugin = match serde_json::from_slice(&body) {
-                Ok(message) => message,
+            let frame: Frame = match serde_json::from_slice(&body) {
+                Ok(frame) => frame,
                 Err(_) => continue,
             };
-            if reader_publishes.send(message).await.is_err() {
+            if reader_publishes.send(frame).await.is_err() {
                 break;
             }
         }
@@ -537,7 +775,7 @@ async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sende
         }
     });
 
-    let mut events = events.subscribe();
+    let mut events = shared.events.subscribe();
     loop {
         let message = match events.recv().await {
             Ok(message) => message,
@@ -551,116 +789,10 @@ async fn serve_stdio(events: broadcast::Sender<ToPlugin>, publishes: mpsc::Sende
     }
 }
 
-/// Serve one plugin: read what it says, tell it what happens.
-///
-/// Only one task ever writes to the plugin, so the messages cannot be
-/// written over one another.
-async fn serve_plugin(
-    stream: UnixStream,
-    events: broadcast::Sender<ToPlugin>,
-    publishes: mpsc::Sender<FromPlugin>,
-) {
-    let (mut reader, mut writer) = stream.into_split();
-    let (outgoing, mut outbox) = mpsc::channel::<ToPlugin>(64);
-
-    // The writer.
-    tokio::spawn(async move {
-        while let Some(message) = outbox.recv().await {
-            let body = serde_json::to_vec(&message).unwrap_or_default();
-            if write_frame(&mut writer, &body).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // The events, as they turn up.
-    let mut events = events.subscribe();
-    let event_out = outgoing.clone();
-    tokio::spawn(async move {
-        loop {
-            let message = match events.recv().await {
-                Ok(message) => message,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
-            };
-            if event_out.send(message).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    // What the plugin says.
-    loop {
-        let Some(body) = read_frame(&mut reader).await else {
-            break;
-        };
-        let message: FromPlugin = match serde_json::from_slice(&body) {
-            Ok(message) => message,
-            Err(_) => {
-                let error = ToPlugin::Error {
-                    message: "that was not a message the near end knows".to_string(),
-                };
-                if outgoing.send(error).await.is_err() {
-                    break;
-                }
-                continue;
-            }
-        };
-        if publishes.send(message).await.is_err() {
-            break;
-        }
-    }
-}
-
-/// Serve one plugin that came in over the loopback.
-///
-/// The protocol is the same, but a web socket frames the messages
-/// itself, so there is no length in front of them.
-async fn serve_web(
-    stream: tokio::net::TcpStream,
-    events: broadcast::Sender<ToPlugin>,
-    publishes: mpsc::Sender<FromPlugin>,
-) {
-    use futures_util::stream::StreamExt as _;
-
-    let Ok(socket) = tokio_tungstenite::accept_async(stream).await else {
-        return;
-    };
-    let (mut writer, mut reader) = socket.split();
-
-    // The events.
-    let mut events = events.subscribe();
-    tokio::spawn(async move {
-        loop {
-            let message = match events.recv().await {
-                Ok(message) => message,
-                Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(broadcast::error::RecvError::Closed) => break,
-            };
-            let body = serde_json::to_string(&message).unwrap_or_default();
-            if writer
-                .send(tokio_tungstenite::tungstenite::Message::Text(body))
-                .await
-                .is_err()
-            {
-                break;
-            }
-        }
-    });
-
-    // What the plugin says.
-    while let Some(Ok(message)) = reader.next().await {
-        let tokio_tungstenite::tungstenite::Message::Text(text) = message else {
-            continue;
-        };
-        let message: FromPlugin = match serde_json::from_str(&text) {
-            Ok(message) => message,
-            Err(_) => continue,
-        };
-        if publishes.send(message).await.is_err() {
-            break;
-        }
-    }
+/// The welcome, if the tunnel is already up.
+fn the_welcome(shared: &Shared) -> Option<Frame> {
+    let welcome = shared.welcome.lock().ok()?;
+    welcome.clone()
 }
 
 /// Read one message: a four-byte big-endian length, then that many bytes.
@@ -708,31 +840,6 @@ fn percent_encode(value: &str) -> String {
     encoded
 }
 
-/// Carry one surface over the standard input and output.
-///
-/// This is the native messaging host of a browser: the browser starts
-/// this process, writes to its standard input and reads what comes out
-/// of its standard output.  The near end is told where the broker is
-/// by the browser itself, in a `connect` message.
-pub async fn run_native(config: Config) -> std::io::Result<()> {
-    let Some(surface) = config.surfaces.into_iter().next() else {
-        return Err(std::io::Error::other("the configuration names no surface"));
-    };
-    let id = surface.id.clone();
-    carry(
-        surface,
-        String::new(),
-        String::new(),
-        config.instance,
-        PluginSide::Stdio,
-        None,
-    )
-    .await
-    .map_err(|error| {
-        std::io::Error::other(format!("the surface {id} could not be carried ({error})"))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,18 +873,18 @@ mod tests {
     }
 
     #[test]
-    fn the_local_protocol_has_an_op_in_every_message() {
-        let message: FromPlugin =
-            serde_json::from_str(r#"{"op":"publish","schema":"a/v1","payload":{"x":1}}"#)
-                .expect("the message is JSON");
-        match message {
-            FromPlugin::Publish { schema, payload } => {
-                assert_eq!(schema, "a/v1");
-                assert_eq!(payload["x"], 1);
-            }
-            other => panic!("that was not a publish: {other:?}"),
-        }
-        let text = serde_json::to_string(&ToPlugin::Pong).expect("the message is JSON");
-        assert_eq!(text, r#"{"op":"pong"}"#);
+    fn a_plugin_publishes_a_frame_of_the_tunnels_own_shape() {
+        let frame = Frame {
+            kind: FrameType::Publish,
+            schema: SchemaId::new("dev.conduit.browser.tab", 1),
+            channel: "tabs".to_string(),
+            call: None,
+            seq: 0,
+            payload: Some(serde_json::json!({"url": "https://example.test/"})),
+        };
+        let text = serde_json::to_string(&frame).expect("the frame is JSON");
+        let back: Frame = serde_json::from_str(&text).expect("the frame comes back");
+        assert_eq!(back.kind, FrameType::Publish);
+        assert_eq!(back.payload.unwrap()["url"], "https://example.test/");
     }
 }

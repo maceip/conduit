@@ -30,12 +30,11 @@ async function nearEndUrl() {
 /** Publish the message that is in front of the user. */
 async function publishTheMessage() {
   const client = connect(await nearEndUrl());
-  client.on((message) => {
-    if (message.op === "error") {
-      console.warn("the near end:", message.message);
+  client.on((frame) => {
+    if (frame.t === "error") {
+      console.warn("the near end:", frame.p && frame.p.message);
     }
   });
-  await client.ready();
   const message = await messageFromBrowser(browser);
   if (message) {
     await publishMessage(client, message);

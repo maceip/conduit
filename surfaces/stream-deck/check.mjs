@@ -19,12 +19,11 @@ await check("the Stream Deck surface publishes the key that was pressed", async 
     const plugin = connect(socket);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
 
-    await plugin.ready();
 
     await publishKey(plugin, {
       action: "dev.conduit.streamdeck.key",

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dev.conduit.connect/v1",
+  "title": "The connect frame",
+  "description": "The one frame the hop between a plugin and the near end has and the tunnel does not. It says where the broker is and what secret may be presented on it. It never goes near the tunnel: the broker refuses it.",
+  "type": "object",
+  "properties": {
+    "broker": {
+      "type": "string",
+      "description": "The address of the broker, for example ws://127.0.0.1:8787/v1/tunnel."
+    },
+    "secret": {
+      "type": "string",
+      "description": "The secret of the grant, for the instance of the surface."
+    },
+    "instance": {
+      "type": "string",
+      "description": "The instance of the tunnel."
+    },
+    "surface": {
+      "type": "string",
+      "description": "The surface the plugin speaks for, when the near end was not told."
+    },
+    "channel": {
+      "type": "string",
+      "description": "The channel of the surface, when the near end was not told."
+    }
+  },
+  "additionalProperties": false
+}

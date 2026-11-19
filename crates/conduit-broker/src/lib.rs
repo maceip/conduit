@@ -414,7 +414,7 @@ async fn welcome(socket: &mut WebSocket, surface: &SchemaId) {
         channel: "tunnel".to_string(),
         call: None,
         seq: 0,
-        payload: Some(serde_json::json!({ "surface": surface.to_string(), "seq": 0 }).to_string()),
+        payload: Some(serde_json::json!({ "surface": surface.to_string(), "seq": 0 })),
     };
     let text = serde_json::to_string(&frame).unwrap_or_default();
     let _ = socket.send(Message::Text(text.into())).await;
@@ -435,7 +435,7 @@ pub fn error_frame(code: ErrorCode, message: &str, scope: Option<String>) -> Str
         channel: "tunnel".to_string(),
         call: None,
         seq: 0,
-        payload: Some(serde_json::to_string(&error).unwrap_or_else(|_| "{}".to_string())),
+        payload: Some(serde_json::to_value(&error).unwrap_or_else(|_| serde_json::json!({}))),
     })
     .unwrap_or_else(|_| "{}".to_string())
 }

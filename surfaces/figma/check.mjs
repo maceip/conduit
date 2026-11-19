@@ -30,11 +30,10 @@ await check("the Figma surface publishes the selection over the loopback", async
     const plugin = connect(`ws://127.0.0.1:${surface.tcp}`);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
-    await plugin.ready();
 
     await publishSelection(plugin, [
       { id: "1:2", name: "Frame", type: "FRAME" },

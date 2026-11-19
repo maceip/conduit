@@ -57,8 +57,7 @@ fn hello(role: &str, keys: &KeyPair, prefix: [u8; 4]) -> String {
             "public": sealed::to_wire(&keys.public_bytes()),
             "prefix": sealed::to_wire(&prefix),
         },
-    })
-    .to_string();
+    });
     serde_json::to_string(&Frame {
         kind: FrameType::Hello,
         schema: SchemaId::new("dev.conduit.hello", 1),
@@ -73,9 +72,9 @@ fn hello(role: &str, keys: &KeyPair, prefix: [u8; 4]) -> String {
 /// The public key the peer sent, out of a hello frame.
 fn public_of(frame: &str) -> [u8; 65] {
     let value: serde_json::Value = serde_json::from_str(frame).expect("a frame is JSON");
-    let public = value["p"].as_str().expect("a payload");
-    let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
-    let text = inner["crypto"]["public"].as_str().expect("a public key");
+    let text = value["p"]["crypto"]["public"]
+        .as_str()
+        .expect("a public key");
     sealed::from_wire(text)
         .expect("base64url")
         .try_into()
@@ -85,9 +84,7 @@ fn public_of(frame: &str) -> [u8; 65] {
 /// The nonce prefix the peer sent, out of a hello frame.
 fn prefix_of(frame: &str) -> [u8; 4] {
     let value: serde_json::Value = serde_json::from_str(frame).expect("a frame is JSON");
-    let public = value["p"].as_str().expect("a payload");
-    let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
-    let text = inner["crypto"]["prefix"].as_str().expect("a prefix");
+    let text = value["p"]["crypto"]["prefix"].as_str().expect("a prefix");
     sealed::from_wire(text)
         .expect("base64url")
         .try_into()
@@ -149,7 +146,7 @@ async fn the_client_receives_what_the_extension_publishes() {
         channel: "compose".to_string(),
         call: None,
         seq: 1,
-        payload: Some(sealed.to_base64()),
+        payload: Some(serde_json::Value::String(sealed.to_base64())),
     })
     .expect("a frame is JSON");
     extension

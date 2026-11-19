@@ -285,16 +285,26 @@ export async function withNativeSurface(surface, body) {
 
   try {
     const native = nativePort(nearEnd);
-    native.send({
-      op: "connect",
-      broker: `${address}/v1/tunnel`,
-      secret: "bootstrap-secret",
-      instance: "bootstrap",
-    });
 
     // Wait until the near end says the tunnel is up: a client that
-    // arrives before the extension is refused by the broker.
-    await waitForTheTunnel(native);
+    // arrives before the extension is refused by the broker.  The
+    // connect frame is what says where the broker is, and the handler
+    // is in place before it goes out.
+    await waitForTheTunnel(native, () => {
+      native.send({
+        t: "connect",
+        s: surface.id,
+        c: surface.channel || surface.id,
+        seq: 0,
+        p: {
+          broker: `${address}/v1/tunnel`,
+          secret: "bootstrap-secret",
+          instance: "bootstrap",
+          surface: surface.id,
+          channel: surface.channel || surface.id,
+        },
+      });
+    });
 
     const { connect } = await import("../../clients/node/client.mjs");
     const client = await connect({
@@ -376,19 +386,14 @@ function nativePort(child) {
     on(handler) {
       handlers.push(handler);
     },
-    status() {
-      this.send({ op: "status" });
-    },
-    /** Wait for a message of that kind. */
+    /** Wait for a frame of that kind. */
     async next(kind, timeoutMs = 10000) {
       const started = Date.now();
       for (;;) {
-        const found = handlers;
-        void found;
         const message = await new Promise((resolve) => {
           const timer = setTimeout(() => resolve(null), 100);
           handlers.push((candidate) => {
-            if (candidate.op === kind) {
+            if (candidate.t === kind) {
               clearTimeout(timer);
               resolve(candidate);
             }
@@ -408,14 +413,20 @@ function nativePort(child) {
 /**
  * Wait until the near end says the tunnel is up.
  *
+ * The near end tells the plugins when the broker has welcomed it: the
+ * welcome frame is the tunnel coming up.  There is nothing to ask and
+ * nothing to wait for on the plugin's side — a plugin publishes when it
+ * has something to say, and the near end holds it until there is a key
+ * to seal it under.
+ *
  * @param {object} port the near end's end: a socket or a pipe
  * @returns {Promise<void>}
  */
-async function waitForTheTunnel(port) {
+async function waitForTheTunnel(port, kick) {
   const started = Date.now();
   const connected = new Promise((resolve) => {
-    const handler = (message) => {
-      if (message && message.op === "status" && message.connected) {
+    const handler = (frame) => {
+      if (frame && frame.t === "welcome") {
         resolve();
       }
     };
@@ -423,7 +434,11 @@ async function waitForTheTunnel(port) {
       port.on(handler);
     }
   });
-  port.status();
+  // The handler is in place before anything is said, so the welcome
+  // cannot slip past.
+  if (kick) {
+    kick();
+  }
   const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     const race = await Promise.race([
@@ -433,7 +448,6 @@ async function waitForTheTunnel(port) {
     if (race) {
       return;
     }
-    port.status();
   }
   throw new Error("the near end did not say the tunnel was up");
 }

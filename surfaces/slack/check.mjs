@@ -20,12 +20,11 @@ await check("the Slack surface publishes the message of the channel", async () =
     const plugin = connect(socket);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
 
-    await plugin.ready();
 
     await publishMessage(plugin, {
       channel: "C0CONDUIT01",

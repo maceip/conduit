@@ -15,17 +15,16 @@ import { TAB_SCHEMA } from "./publish.js";
 await check("the Safari surface publishes the tab in front of the user", async () => {
   const surface = declaration(new URL(".", import.meta.url).pathname);
   await withNativeSurface(surface, async ({ native, client }) => {
-    // The browser says where the broker is, and the near end answers
-    // with the state of the tunnel.
-    const status = await native.next("status");
-    if (!status.agreed) {
-      throw new Error("the near end did not agree the keys of the tunnel");
-    }
-
+    // The tunnel is up: the harness waited for the near end's welcome
+    // before it got here.
+    //
+    // The browser publishes a frame.  The near end seals it.
     native.send({
-      op: "publish",
-      schema: TAB_SCHEMA,
-      payload: {
+      t: "publish",
+      s: TAB_SCHEMA,
+      c: surface.channel || surface.id,
+      seq: 0,
+      p: {
         title: "Conduit",
         url: "https://example.test/conduit",
         active: true,

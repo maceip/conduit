@@ -41,14 +41,13 @@ closed.
 | `welcome` | broker → end | `dev.conduit.welcome/v1` | grant, schemes, resume point |
 | `subscribe` | client → broker | `dev.conduit.subscribe/v1` | i want this channel with these scopes |
 | `subscribed` | broker → client | `dev.conduit.subscribed/v1` | granted; here's the resume point |
-| `unsubscribe` | client → broker | `dev.conduit.unsubscribe/v1` | stop that channel |
 | `publish` | extension → broker | `dev.conduit.publish/v1` | an event for that channel |
 | `call` | client → extension | `dev.conduit.call/v1` | do this |
 | `result` | extension → broker | `dev.conduit.result/v1` | answer to that call |
 | `error` | either | `dev.conduit.error/v1` | it failed + why |
 | `ping` | either | `dev.conduit.ping/v1` | i'm here |
 | `pong` | either | `dev.conduit.pong/v1` | i'm here too |
-| `grant` | broker → extension | `dev.conduit.grant/v1` | the user changed the grant |
+| `connect` | plugin → near end | `dev.conduit.connect/v1` | where the broker is, and the secret; never goes near the tunnel |
 
 `ping` keeps a chromium worker alive. from Chrome 116, sending or receiving
 it resets the service worker's 30s idle timer; an idle socket doesn't. the

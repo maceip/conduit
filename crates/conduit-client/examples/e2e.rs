@@ -77,7 +77,7 @@ fn refusal(text: &str) -> Value {
     let error = serde_json::from_str::<Frame>(text)
         .ok()
         .and_then(|frame| frame.payload)
-        .and_then(|payload| serde_json::from_str::<Value>(&payload).ok())
+        .and_then(|payload| payload.as_object().map(|body| Value::Object(body.clone())))
         .unwrap_or(Value::Null);
     json!({
         "type": "refused",

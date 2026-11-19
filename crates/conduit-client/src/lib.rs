@@ -23,7 +23,7 @@
 //! # }
 //! ```
 
-use conduit_protocol::sealed::{self, KeyPair, SharedSecret};
+use conduit_protocol::end::{End, Role};
 use conduit_protocol::{Frame, FrameType, SchemaId, Scope};
 use futures_util::{SinkExt, StreamExt};
 use std::collections::{HashMap, VecDeque};
@@ -153,15 +153,15 @@ pub struct Keys {
 /// A client: a connection to the broker.
 pub struct Client {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    sequence: u64,
     channels: HashMap<String, Vec<Scope>>,
     surface: SchemaId,
-    /// The key pair of this end.
-    keys: KeyPair,
-    /// The prefix this end uses in its nonces.
-    prefix: [u8; 4],
-    /// The keys of the tunnel, once the extension's hello has arrived.
-    tunnel: Option<(SharedSecret, [u8; 4])>,
+    /// The keys of this end, and the keys of the tunnel once the two
+    /// ends have met.
+    ///
+    /// The client and the near end share one implementation of this:
+    /// there is no second way to seal a payload, and the tests that
+    /// compare them compare the same code.
+    end: End,
     /// What has arrived and not yet been handed over: events, and the
     /// broker's refusals, in the order they came.
     pending: VecDeque<Incoming>,
@@ -189,22 +189,13 @@ impl Client {
 
         let mut client = Client {
             socket,
-            sequence: 0,
             channels: HashMap::new(),
             surface: address.surface(),
-            keys: KeyPair::generate(),
-            prefix: sealed::random_prefix(),
-            tunnel: None,
+            end: End::new(Role::Client),
             pending: VecDeque::new(),
         };
-        let hello = Frame {
-            kind: FrameType::Hello,
-            schema: SchemaId::new("dev.conduit.hello", 1),
-            channel: "tunnel".to_string(),
-            call: None,
-            seq: 0,
-            payload: Some(client.hello_payload()),
-        };
+        // The hello, with the public key of this end.
+        let hello = client.end.hello(&surface, &address.channel());
         client.send(&hello).await?;
         client.await_welcome().await?;
         Ok(client)
@@ -256,14 +247,13 @@ impl Client {
         let payload = serde_json::json!({
             "channel": channel,
             "scopes": scopes.iter().map(|scope| scope.to_string()).collect::<Vec<_>>(),
-        })
-        .to_string();
+        });
         let frame = Frame {
             kind: FrameType::Subscribe,
             schema: SchemaId::new("dev.conduit.subscribe", 1),
             channel: channel.clone(),
             call: None,
-            seq: self.next_sequence(),
+            seq: self.end.next_sequence(),
             payload: Some(payload),
         };
         self.send(&frame).await?;
@@ -332,13 +322,21 @@ impl Client {
             FrameType::Hello => {
                 // The hello of the extension carries its public key.
                 if let Some(payload) = &frame.payload {
-                    self.meet(payload)?;
+                    self.end.meet(payload).map_err(|_| ClientError::Malformed)?;
                 }
                 Ok(None)
             }
             FrameType::Publish | FrameType::Result => {
-                let payload = frame.payload.unwrap_or_default();
-                let opened = self.open(&payload, frame.seq)?;
+                let payload = frame
+                    .payload
+                    .as_ref()
+                    .and_then(|body| body.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                let opened = self
+                    .end
+                    .open(&payload, frame.seq)
+                    .map_err(|_| ClientError::Malformed)?;
                 Ok(Some(Incoming::Event(Event {
                     schema: frame.schema,
                     channel: frame.channel,
@@ -352,37 +350,6 @@ impl Client {
         }
     }
 
-    /// The payload of the hello: who we are, and the public key.
-    ///
-    /// The key material is base64url without padding — the encoding
-    /// the protocol names for the sealed blob, and the one the
-    /// extension sends.
-    fn hello_payload(&self) -> String {
-        serde_json::json!({
-            "role": "client",
-            "surface": self.surface.to_string(),
-            "crypto": {
-                "scheme": sealed::SCHEME,
-                "public": sealed::to_wire(&self.keys.public_bytes()),
-                "prefix": sealed::to_wire(&self.prefix),
-            },
-        })
-        .to_string()
-    }
-
-    /// The keys of the tunnel, once the extension's hello has arrived.
-    fn tunnel_keys(&self) -> Option<&(SharedSecret, [u8; 4])> {
-        self.tunnel.as_ref()
-    }
-
-    /// Seal a payload for the extension.
-    fn seal(&self, payload: &[u8], seq: u64) -> Result<String, ClientError> {
-        let (shared, _) = self.tunnel_keys().ok_or(ClientError::NoKeys)?;
-        let key = shared.to_client();
-        let sealed = sealed::seal(&key, self.prefix, seq, payload);
-        Ok(sealed.to_base64())
-    }
-
     /// Publish an event to the extension.
     ///
     /// The payload is sealed under the key of the tunnel; the broker
@@ -394,57 +361,16 @@ impl Client {
         payload: &[u8],
     ) -> Result<(), ClientError> {
         self.pump().await?;
-        let seq = self.next_sequence();
-        let sealed = self.seal(payload, seq)?;
+        let (seq, sealed) = self.end.seal(payload).map_err(|_| ClientError::NoKeys)?;
         let frame = Frame {
             kind: FrameType::Publish,
             schema: schema.clone(),
             channel: channel.to_string(),
             call: None,
             seq,
-            payload: Some(sealed),
+            payload: Some(serde_json::Value::String(sealed)),
         };
         self.send(&frame).await
-    }
-
-    /// Open a payload from the extension.
-    fn open(&self, payload: &str, seq: u64) -> Result<Vec<u8>, ClientError> {
-        let (shared, prefix) = self.tunnel_keys().ok_or(ClientError::NoKeys)?;
-        let key = shared.to_extension();
-        let blob = sealed::Sealed::from_base64(payload).ok_or(ClientError::Malformed)?;
-        sealed::open(&key, *prefix, seq, &blob).ok_or(ClientError::Malformed)
-    }
-
-    /// Take the extension's hello and agree the keys of the tunnel.
-    fn meet(&mut self, payload: &str) -> Result<(), ClientError> {
-        let value: serde_json::Value =
-            serde_json::from_str(payload).map_err(|_| ClientError::Malformed)?;
-        let crypto = value.get("crypto").ok_or(ClientError::Malformed)?;
-        let public = crypto
-            .get("public")
-            .and_then(|public| public.as_str())
-            .ok_or(ClientError::Malformed)?;
-        let prefix = crypto
-            .get("prefix")
-            .and_then(|prefix| prefix.as_str())
-            .ok_or(ClientError::Malformed)?;
-
-        let public = sealed::from_wire(public).ok_or(ClientError::Malformed)?;
-        if public.len() != 65 {
-            return Err(ClientError::Malformed);
-        }
-        let mut point = [0u8; 65];
-        point.copy_from_slice(&public);
-        let shared = self.keys.agree(&point);
-
-        let prefix = sealed::from_wire(prefix).ok_or(ClientError::Malformed)?;
-        if prefix.len() != 4 {
-            return Err(ClientError::Malformed);
-        }
-        let mut bytes = [0u8; 4];
-        bytes.copy_from_slice(&prefix);
-        self.tunnel = Some((shared, bytes));
-        Ok(())
     }
 
     /// Send a frame.
@@ -454,12 +380,6 @@ impl Client {
             .send(Message::Text(text))
             .await
             .map_err(|error| ClientError::Connection(Box::new(error)))
-    }
-
-    /// The next sequence number of the client.
-    fn next_sequence(&mut self) -> u64 {
-        self.sequence += 1;
-        self.sequence
     }
 }
 

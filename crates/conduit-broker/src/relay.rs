@@ -396,6 +396,15 @@ pub async fn serve_client(
                             FrameType::Call => tunnel
                                 .denies(verb::CALL)
                                 .map(|scope| scope_denied(&scope, "the client may not call")),
+                            // The connect frame belongs to the hop
+                            // between a plugin and the near end.  It
+                            // never goes near the tunnel, and the
+                            // broker says so.
+                            FrameType::Connect => Some(error_frame(
+                                ErrorCode::UnknownType,
+                                "the connect frame does not go on the tunnel",
+                                None,
+                            )),
                             _ => None,
                         };
                         if let Some(refusal) = refusal {
@@ -432,13 +441,10 @@ fn subscribed(frame: &Frame, scopes: &[Scope]) -> String {
         channel: frame.channel.clone(),
         call: None,
         seq: 0,
-        payload: Some(
-            serde_json::json!({
-                "channel": frame.channel,
-                "scopes": scopes.iter().map(|scope| scope.to_string()).collect::<Vec<_>>(),
-            })
-            .to_string(),
-        ),
+        payload: Some(serde_json::json!({
+            "channel": frame.channel,
+            "scopes": scopes.iter().map(|scope| scope.to_string()).collect::<Vec<_>>(),
+        })),
     })
     .unwrap_or_default()
 }
@@ -447,7 +453,7 @@ fn subscribed(frame: &Frame, scopes: &[Scope]) -> String {
 /// (`dev.conduit.subscribe/v1`; subscribe is not sealed, the broker has
 /// to read it).
 fn scopes_of(frame: &Frame) -> Vec<Scope> {
-    let Some(payload) = frame.payload.as_deref() else {
+    let Some(payload) = frame.payload.as_ref().and_then(|body| body.as_str()) else {
         return Vec::new();
     };
     let value: serde_json::Value = match serde_json::from_str(payload) {

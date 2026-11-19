@@ -30,13 +30,13 @@ export function start() {
   const state = document.getElementById("state");
   const client = connect(nearEndUrl());
 
-  client.on((message) => {
-    if (message.op === "status" && message.agreed) {
+  client.on((frame) => {
+    if (frame.t === "welcome") {
       state.textContent = "the tunnel is up";
       return;
     }
-    if (message.op === "error") {
-      state.textContent = message.message;
+    if (frame.t === "error") {
+      state.textContent = (frame.p && frame.p.message) || "the near end refused";
     }
   });
 

@@ -16,12 +16,11 @@ await check("the VS Code surface publishes the tab in front of the user", async 
     const plugin = connect(socket);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
 
-    await plugin.ready();
 
     await publishTab(plugin, {
       title: "lib.rs",

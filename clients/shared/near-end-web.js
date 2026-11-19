@@ -3,10 +3,17 @@
 // A web extension, a Figma plugin and a panel in an editor that is
 // built on a web page cannot open a Unix socket.  So the near end also
 // listens on the loopback and speaks the same protocol there: one JSON
-// message per web socket message.
+// frame per web socket message.
 //
-//   plugin  ->  {"op":"publish","schema":"dev.conduit.browser.tab/v1","payload":{…}}
-//   near end ->  {"op":"event","schema":"…","channel":"…","seq":7,"payload":{…}}
+//   plugin  ->  {"t":"publish","s":"dev.conduit.browser.tab/v1","c":"tabs","p":{…}}
+//   near end ->  {"t":"publish","s":"…","c":"…","seq":7,"p":{…}}
+//
+// There is no second vocabulary: the frames are the frames of the
+// tunnel, and the payload of a published frame is plaintext on this
+// socket because the near end is the one that seals it.
+//
+// The plugin does not wait for the tunnel to be up.  The near end holds
+// what it publishes until the two ends have agreed their keys.
 
 /**
  * The client of a near end over a web socket.
@@ -25,7 +32,7 @@ export class NearEndWebClient {
   #handlers = new Set();
   #queue = [];
   #open = false;
-  #agreed = false;
+  #channel = "";
 
   constructor(url) {
     this.#socket = new WebSocket(url);
@@ -37,17 +44,14 @@ export class NearEndWebClient {
       this.#queue = [];
     });
     this.#socket.addEventListener("message", (event) => {
-      let message;
+      let frame;
       try {
-        message = JSON.parse(event.data);
+        frame = JSON.parse(event.data);
       } catch {
         return;
       }
-      if (message.op === "status" && message.agreed) {
-        this.#agreed = true;
-      }
       for (const handler of this.#handlers) {
-        handler(message);
+        handler(frame);
       }
     });
     this.#socket.addEventListener("close", () => {
@@ -57,42 +61,52 @@ export class NearEndWebClient {
   }
 
   /**
+   * The channel this plugin publishes on.
+   *
+   * The near end puts the channel of the surface on the frame anyway,
+   * so this is only for the plugin's own sake.
+   *
+   * @param {string} channel the channel
+   */
+  setChannel(channel) {
+    this.#channel = channel;
+  }
+
+  /**
    * Publish what the app knows.
    *
    * @param {string} schema the schema of the payload
    * @param {unknown} payload the payload, as JSON
    */
   publish(schema, payload) {
-    this.#send({ op: "publish", schema, payload });
-  }
-
-  /** Ask how the tunnel is. */
-  status() {
-    this.#send({ op: "status" });
+    this.#send({
+      t: "publish",
+      s: schema,
+      c: this.#channel,
+      seq: 0,
+      p: payload,
+    });
   }
 
   /**
-   * Wait until the tunnel has a key.
+   * Say where the broker is.
    *
-   * @param {number} timeoutMs how long to wait
-   * @returns {Promise<boolean>} whether the tunnel agreed
+   * @param {object} where the broker, the secret and the instance
    */
-  async ready(timeoutMs = 10000) {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      if (this.#agreed) {
-        return true;
-      }
-      this.status();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    throw new Error("the near end did not agree the keys of the tunnel");
+  connectTo(where) {
+    this.#send({
+      t: "connect",
+      s: "",
+      c: this.#channel,
+      seq: 0,
+      p: where,
+    });
   }
 
   /**
    * Say what happens when the near end says something.
    *
-   * @param {(message: object) => void} handler
+   * @param {(frame: object) => void} handler
    * @returns {() => void} a function that takes the handler away
    */
   on(handler) {

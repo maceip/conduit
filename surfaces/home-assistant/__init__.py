@@ -43,7 +43,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, Dict, List
 
-from .publish import publish_entities, publish_entity, wait_until_agreed
+from .publish import publish_entities, publish_entity
 
 try:  # pragma: no cover - Home Assistant is not installed on this machine
     from homeassistant.const import EVENT_STATE_CHANGED
@@ -171,13 +171,6 @@ async def async_setup_entry(hass: Any, entry: Any) -> bool:
 
     client = near_end_client_class()(socket)
     await client.connect()
-
-    # The near end cannot seal anything before the two ends have agreed
-    # their keys, so the first publish waits for that.
-    if not await wait_until_agreed(client):
-        LOGGER.warning("the near end did not agree the keys of the tunnel")
-        await client.close()
-        return False
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "client": client,

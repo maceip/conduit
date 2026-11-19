@@ -103,7 +103,7 @@ fn a_frame_carries_its_fields_as_the_schema_says() {
         channel: "mail.messages".to_string(),
         call: Some(7),
         seq: 41,
-        payload: Some("c2VhbGVk".to_string()),
+        payload: Some(serde_json::Value::String("c2VhbGVk".to_string())),
     };
     let json = serde_json::to_value(&frame).expect("a frame is JSON");
     assert_eq!(json["t"], "publish");
@@ -177,9 +177,9 @@ fn the_replay_ring_says_when_the_gap_is_larger_than_the_ring() {
 #[test]
 fn a_frame_over_the_limit_is_over_the_limit() {
     let mut frame = Frame::new(FrameType::Publish, "c", None);
-    frame.payload = Some("x".repeat(MAX_FRAME_BYTES + 1));
+    frame.payload = Some(serde_json::Value::String("x".repeat(MAX_FRAME_BYTES + 1)));
     assert!(!frame.within_the_limit());
-    frame.payload = Some("x".repeat(16));
+    frame.payload = Some(serde_json::Value::String("x".repeat(16)));
     assert!(frame.within_the_limit());
 }
 

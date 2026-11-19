@@ -35,31 +35,32 @@ pub enum FrameType {
     Welcome,
     Subscribe,
     Subscribed,
-    Unsubscribe,
     Publish,
     Call,
     Result,
     Error,
     Ping,
     Pong,
-    Grant,
+    /// The one frame the local hop has and the tunnel does not: the
+    /// plugin says where the broker is and what secret may be presented
+    /// on it.  It never goes near the tunnel.
+    Connect,
 }
 
 impl FrameType {
     /// Every registered type, in the order of the registry.
-    pub const ALL: [FrameType; 12] = [
+    pub const ALL: [FrameType; 11] = [
         FrameType::Hello,
         FrameType::Welcome,
         FrameType::Subscribe,
         FrameType::Subscribed,
-        FrameType::Unsubscribe,
         FrameType::Publish,
         FrameType::Call,
         FrameType::Result,
         FrameType::Error,
         FrameType::Ping,
         FrameType::Pong,
-        FrameType::Grant,
+        FrameType::Connect,
     ];
 
     /// The name of the type on the wire.
@@ -69,14 +70,13 @@ impl FrameType {
             FrameType::Welcome => "welcome",
             FrameType::Subscribe => "subscribe",
             FrameType::Subscribed => "subscribed",
-            FrameType::Unsubscribe => "unsubscribe",
             FrameType::Publish => "publish",
             FrameType::Call => "call",
             FrameType::Result => "result",
             FrameType::Error => "error",
             FrameType::Ping => "ping",
             FrameType::Pong => "pong",
-            FrameType::Grant => "grant",
+            FrameType::Connect => "connect",
         }
     }
 
@@ -114,14 +114,18 @@ pub struct Frame {
     /// The sequence number of this frame in the tunnel.
     #[serde(rename = "seq")]
     pub seq: u64,
-    /// The sealed payload.
+    /// The payload.
+    ///
+    /// On the tunnel it is the sealed payload, which is a string.  On
+    /// the hop between a plugin and the near end it is whatever the
+    /// plugin published, which is any JSON at all.
     #[serde(rename = "p", skip_serializing_if = "Option::is_none", default)]
-    pub payload: Option<String>,
+    pub payload: Option<serde_json::Value>,
 }
 
 impl Frame {
     /// A frame of that type, on that channel, with that payload.
-    pub fn new(kind: FrameType, channel: &str, payload: Option<String>) -> Frame {
+    pub fn new(kind: FrameType, channel: &str, payload: Option<serde_json::Value>) -> Frame {
         Frame {
             kind,
             schema: SchemaId::new("dev.conduit.frame", 1),
@@ -134,7 +138,11 @@ impl Frame {
 
     /// Whether the frame is within the size limit.
     pub fn within_the_limit(&self) -> bool {
-        self.payload.as_ref().map(|body| body.len()).unwrap_or(0) <= MAX_FRAME_BYTES
+        self.payload
+            .as_ref()
+            .map(|body| body.to_string().len())
+            .unwrap_or(0)
+            <= MAX_FRAME_BYTES
     }
 }
 

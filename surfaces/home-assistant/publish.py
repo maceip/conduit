@@ -67,52 +67,20 @@ def entity_pairs(entities: Any) -> Iterable[Tuple[str, Any]]:
     return [(entity_id, state) for entity_id, state in entities]
 
 
-async def wait_until_agreed(client: Any, timeout: float = 10.0) -> bool:
-    """Wait until the two ends of the tunnel have agreed their keys.
-
-    The near end cannot seal anything before it has met the other end,
-    and a publish that arrives before then is refused.  So the plugin
-    asks how the tunnel is until the answer says the tunnel is agreed.
-
-    :param client: the client of the near end.
-    :param timeout: how long to wait, in seconds.
-    :returns: whether the tunnel agreed.
-    """
-    agreed = asyncio.Event()
-
-    def watch(message: Mapping[str, Any]) -> None:
-        if message.get("op") == "status" and message.get("agreed"):
-            agreed.set()
-
-    client.on(watch)
-    loop = asyncio.get_running_loop()
-    deadline = loop.time() + timeout
-    while not agreed.is_set():
-        remaining = deadline - loop.time()
-        if remaining <= 0:
-            return False
-        await client.status()
-        try:
-            await asyncio.wait_for(agreed.wait(), timeout=min(0.2, remaining))
-        except asyncio.TimeoutError:
-            continue
-    return True
-
-
 async def publish_entities(client: Any, entities: Any) -> int:
     """Publish the state of every entity.
 
     The state of each entity is published to the near end, in plain JSON,
     under the schema ``dev.conduit.homeassistant.state/v1``.  The near end
-    seals it; this function never sees a key.
+    seals it; this function never sees a key, and it does not wait for
+    the tunnel to be up: the near end holds what is published until
+    there is a key to seal it under.
 
     :param client: the client of the near end.
     :param entities: the entities, as a mapping of an entity id to the
         state of that entity, or as an iterable of such pairs.
     :returns: how many entities were published.
     """
-    if not await wait_until_agreed(client):
-        raise TimeoutError("the near end did not agree the keys of the tunnel")
     published = 0
     for entity_id, state in entity_pairs(entities):
         await client.publish(STATE_SCHEMA, entity_payload(entity_id, state))

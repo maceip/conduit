@@ -5,10 +5,15 @@
 //! configuration, and plays the part of the plugin inside the app: it
 //! opens the near end's socket, publishes what the app knows, and
 //! watches what comes back.
+//!
+//! The plugin does not wait for the tunnel to be up.  It publishes the
+//! moment it has something to say, and the near end holds it until the
+//! two ends have agreed their keys.  The test says so: the publish
+//! goes out before the client has even connected.
 
 use conduit_broker::{router, AppState, Devices, InMemoryRegistry};
 use conduit_client::{Address, Client};
-use conduit_protocol::{Grant, SchemaId, Scope};
+use conduit_protocol::{Frame, FrameType, Grant, SchemaId, Scope};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, UnixStream};
@@ -72,15 +77,28 @@ async fn read_message(stream: &mut UnixStream) -> serde_json::Value {
     serde_json::from_slice(&body).expect("the body is JSON")
 }
 
-/// Read until a message with that op turns up.
-async fn read_until_op(stream: &mut UnixStream, op: &str) -> serde_json::Value {
-    for _ in 0..32 {
+/// Read until a frame of that kind turns up.
+async fn read_until_kind(stream: &mut UnixStream, kind: &str) -> serde_json::Value {
+    for _ in 0..64 {
         let message = read_message(stream).await;
-        if message["op"] == op {
+        if message["t"] == kind {
             return message;
         }
     }
-    panic!("no message with the op {op} turned up");
+    panic!("no frame of the kind {kind} turned up");
+}
+
+/// The frame a plugin publishes: the same frame the tunnel carries.
+fn publish(schema: &str, payload: serde_json::Value) -> String {
+    serde_json::to_string(&Frame {
+        kind: FrameType::Publish,
+        schema: SchemaId::new(schema, 1),
+        channel: "tabs".to_string(),
+        call: None,
+        seq: 0,
+        payload: Some(payload),
+    })
+    .expect("the frame is JSON")
 }
 
 #[tokio::test]
@@ -137,6 +155,18 @@ async fn the_near_end_carries_a_surface_from_the_plugin_to_the_client() {
     }
     let mut plugin = plugin.expect("the near end binds its socket");
 
+    // The plugin publishes at once.  There is no client yet, so there is
+    // no key, so the near end holds it.  The plugin does not know and
+    // does not wait: that is the near end's business.
+    write_message(
+        &mut plugin,
+        &publish(
+            "dev.conduit.browser.tab",
+            serde_json::json!({"url": "https://example.test/", "title": "Example"}),
+        ),
+    )
+    .await;
+
     // The client at the far end of the tunnel.
     let target =
         Address::parse("conduit://dev.conduit.browser.tabs/tabs@v1").expect("the address parses");
@@ -159,29 +189,7 @@ async fn the_near_end_carries_a_surface_from_the_plugin_to_the_client() {
         .await
         .expect("the subscription goes");
 
-    // Wait until the two ends have agreed their keys.  The near end
-    // says so in its status, and the near end cannot seal anything
-    // before that: a guess with a sleep is a guess.
-    write_message(&mut plugin, r#"{"op":"status"}"#).await;
-    loop {
-        let message = read_message(&mut plugin).await;
-        if message["op"] == "status" && message["agreed"] == true {
-            break;
-        }
-    }
-
-    // The plugin publishes what the app knows.  The near end seals it.
-    write_message(
-        &mut plugin,
-        &serde_json::json!({
-            "op": "publish",
-            "schema": "dev.conduit.browser.tab/v1",
-            "payload": {"url": "https://example.test/", "title": "Example"},
-        })
-        .to_string(),
-    )
-    .await;
-
+    // What the plugin published before there was a client comes now.
     let event = tokio::time::timeout(std::time::Duration::from_secs(10), client.next())
         .await
         .expect("the event arrives")
@@ -207,9 +215,9 @@ async fn the_near_end_carries_a_surface_from_the_plugin_to_the_client() {
         .await
         .expect("the publish goes");
 
-    let event = read_until_op(&mut plugin, "event").await;
-    assert_eq!(event["payload"], "from the client");
-    assert_eq!(event["schema"], "dev.conduit.browser.tab/v1");
+    let event = read_until_kind(&mut plugin, "publish").await;
+    assert_eq!(event["p"], "from the client");
+    assert_eq!(event["s"], "dev.conduit.browser.tab/v1");
 
     let _ = near_end.kill().await;
     let _ = std::fs::remove_dir_all(&directory);

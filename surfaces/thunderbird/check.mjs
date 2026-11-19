@@ -30,11 +30,10 @@ await check("the Thunderbird surface publishes the message over the loopback", a
     const plugin = connect(`ws://127.0.0.1:${surface.tcp}`);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
-    await plugin.ready();
 
     await publishMessage(plugin, {
       id: "42",

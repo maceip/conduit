@@ -115,28 +115,25 @@ impl End {
             channel: channel.to_string(),
             call: None,
             seq: sequence,
-            payload: Some(
-                serde_json::json!({
-                    "role": match self.role {
-                        Role::Extension => "extension",
-                        Role::Client => "client",
-                    },
-                    "surface": surface,
-                    "resume": self.sequence,
-                    "crypto": {
-                        "scheme": sealed::SCHEME,
-                        "public": self.public(),
-                        "prefix": self.prefix(),
-                    },
-                })
-                .to_string(),
-            ),
+            payload: Some(serde_json::json!({
+                "role": match self.role {
+                    Role::Extension => "extension",
+                    Role::Client => "client",
+                },
+                "surface": surface,
+                "resume": self.sequence,
+                "crypto": {
+                    "scheme": sealed::SCHEME,
+                    "public": self.public(),
+                    "prefix": self.prefix(),
+                },
+            })),
         }
     }
 
     /// Take the hello of the other end and agree the keys of the tunnel.
-    pub fn meet(&mut self, payload: &str) -> Result<(), EndError> {
-        let value: Value = serde_json::from_str(payload).map_err(|_| EndError::Malformed)?;
+    pub fn meet(&mut self, payload: &Value) -> Result<(), EndError> {
+        let value = payload;
         let crypto = value.get("crypto").ok_or(EndError::Malformed)?;
         let public = crypto
             .get("public")
@@ -261,7 +258,7 @@ mod tests {
         let mut end = End::new(Role::Extension);
         let hello = end.hello("dev.conduit.browser.tabs/v1", "tabs");
         let payload = hello.payload.expect("the hello carries a payload");
-        let value: Value = serde_json::from_str(&payload).expect("the payload is JSON");
+        let value: Value = payload.clone();
         let crypto = value.get("crypto").expect("the crypto");
         let public = crypto
             .get("public")

@@ -2,17 +2,26 @@
 //
 // The near end is a separate process that holds the socket to the
 // broker and does the sealing.  The plugin talks to it over a Unix
-// socket, in plain JSON, one message at a time:
+// socket, in plain JSON, one message at a time — and the message is a
+// frame of the tunnel's own shape:
 //
-//   plugin  ->  {"op":"publish","schema":"dev.conduit.browser.tab/v1","payload":{…}}
-//   near end ->  {"op":"event","schema":"…","channel":"…","seq":7,"payload":{…}}
+//   plugin  ->  {"t":"publish","s":"dev.conduit.browser.tab/v1","c":"tabs","p":{…}}
+//   near end ->  {"t":"publish","s":"…","c":"…","seq":7,"p":{…}}
 //
-// What the plugin publishes is plaintext on this socket.  What leaves
-// the machine is not: the near end seals it under the key of the
-// tunnel, and the broker never sees it open.
+// There is no second vocabulary.  The hop between a plugin and the
+// near end carries the frames the tunnel carries, and the only thing
+// that differs is that the payload of a published frame is plaintext:
+// the near end seals it under the key of the tunnel before it leaves
+// the machine, and the broker never sees it open.
+//
+// The plugin does not wait for the tunnel to be up.  The near end holds
+// what it publishes until the two ends have agreed their keys, and
+// sends it then.  The waiting happens once, in the near end, and not
+// in every plugin in every language.
 //
 // This is the Node half.  A plugin that runs inside a web page cannot
-// open a Unix socket, and uses `clients/shared/near-end.js` instead.
+// open a Unix socket, and uses `clients/shared/near-end-web.js`
+// instead.
 
 import net from "node:net";
 
@@ -33,7 +42,7 @@ export class NearEndClient {
   #handlers = new Set();
   #queue = [];
   #open = false;
-  #agreed = false;
+  #channel = "";
 
   constructor(socketPath) {
     this.#socket = net.createConnection(socketPath);
@@ -54,46 +63,56 @@ export class NearEndClient {
   }
 
   /**
+   * The channel this plugin publishes on.
+   *
+   * The near end puts the channel of the surface on the frame anyway,
+   * so this is only for the plugin's own sake.
+   *
+   * @param {string} channel the channel
+   */
+  setChannel(channel) {
+    this.#channel = channel;
+  }
+
+  /**
    * Publish what the app knows.
    *
    * @param {string} schema the schema of the payload
    * @param {unknown} payload the payload, as JSON
    */
   publish(schema, payload) {
-    this.#send({ op: "publish", schema, payload });
-  }
-
-  /** Ask how the tunnel is. */
-  status() {
-    this.#send({ op: "status" });
+    this.#send({
+      t: "publish",
+      s: schema,
+      c: this.#channel,
+      seq: 0,
+      p: payload,
+    });
   }
 
   /**
-   * Wait until the tunnel has a key.
+   * Say where the broker is.
    *
-   * The two ends agree their keys when they have said hello to each
-   * other, and that takes a moment.  A plugin that publishes before
-   * then has nothing to seal the payload under, so it waits.
+   * The near end may be told this by a plugin that did the device
+   * flow: the browser knows the secret, and the near end holds the
+   * socket.
    *
-   * @param {number} timeoutMs how long to wait
-   * @returns {Promise<boolean>} whether the tunnel agreed
+   * @param {object} where the broker, the secret and the instance
    */
-  async ready(timeoutMs = 10000) {
-    const started = Date.now();
-    while (Date.now() - started < timeoutMs) {
-      if (this.#agreed) {
-        return true;
-      }
-      this.status();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-    throw new Error("the near end did not agree the keys of the tunnel");
+  connect(where) {
+    this.#send({
+      t: "connect",
+      s: "",
+      c: this.#channel,
+      seq: 0,
+      p: where,
+    });
   }
 
   /**
    * Say what happens when the near end says something.
    *
-   * @param {(message: object) => void} handler
+   * @param {(frame: object) => void} handler
    * @returns {() => void} a function that takes the handler away
    */
   on(handler) {
@@ -140,17 +159,14 @@ export class NearEndClient {
       }
       const body = this.#buffer.subarray(4, 4 + length).toString("utf8");
       this.#buffer = this.#buffer.subarray(4 + length);
-      let message;
+      let frame;
       try {
-        message = JSON.parse(body);
+        frame = JSON.parse(body);
       } catch {
         continue;
       }
-      if (message.op === "status" && message.agreed) {
-        this.#agreed = true;
-      }
       for (const handler of this.#handlers) {
-        handler(message);
+        handler(frame);
       }
     }
   }

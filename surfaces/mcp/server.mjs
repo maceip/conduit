@@ -81,28 +81,6 @@ function readState() {
 }
 
 /**
- * Wait until the two ends of the tunnel have agreed their keys.
- *
- * The near end cannot seal anything before that, and a client may come
- * later than the server does, so this waits rather than gives up.
- *
- * @returns {Promise<void>}
- */
-async function waitForTunnel() {
-  for (;;) {
-    try {
-      await client.ready(2000);
-      return;
-    } catch {
-      process.stderr.write(
-        "conduit: the near end has not agreed the keys of the tunnel yet\n",
-      );
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-  }
-}
-
-/**
  * Publish the state of the surface to the near end.
  *
  * The near end seals it; this server never sees a key.
@@ -117,20 +95,16 @@ async function publishState() {
 }
 
 /**
- * Ask the near end how the tunnel is, and wait for the answer.
+ * How the tunnel is.
  *
- * @returns {Promise<object|null>} the status, when it comes
+ * The near end says so with the welcome frame: that is the broker
+ * saying the tunnel is up.  There is nothing to ask and nothing to
+ * wait for — a plugin publishes when it has something to say, and the
+ * near end holds it until there is a key to seal it under.
+ *
+ * @returns {object|null} the state of the tunnel, when it is known
  */
-async function askStatus() {
-  if (!client) {
-    return null;
-  }
-  const before = lastStatus;
-  client.status();
-  const deadline = Date.now() + 2000;
-  while (lastStatus === before && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
+function askStatus() {
   return lastStatus;
 }
 
@@ -293,29 +267,31 @@ async function start() {
     process.stderr.write("conduit: there is no near end socket\n");
     return;
   }
-  client.on((message) => {
-    if (message.op === "event") {
+  client.on((frame) => {
+    if (frame.t === "publish" || frame.t === "result") {
       // The other end of the tunnel published something, and the near
       // end opened it: the state of the surface is that now.
       latest = {
-        schema: message.schema || STATE_SCHEMA,
-        channel: message.channel || channel,
-        payload: message.payload,
+        schema: frame.s || STATE_SCHEMA,
+        channel: frame.c || channel,
+        payload: frame.p,
       };
       return;
     }
-    if (message.op === "status") {
-      lastStatus = message;
+    if (frame.t === "welcome") {
+      // The broker welcomed the near end: the tunnel is up.
+      lastStatus = frame;
       return;
     }
-    if (message.op === "error") {
-      process.stderr.write(`conduit: the near end said: ${message.message}\n`);
+    if (frame.t === "error") {
+      process.stderr.write(
+        `conduit: the near end said: ${(frame.p && frame.p.message) || "an error"}\n`,
+      );
     }
   });
 
-  // The near end cannot seal anything before the two ends have agreed
-  // their keys, so the first publish waits for that.
-  await waitForTunnel();
+  // The state is published at once.  The near end holds it until the
+  // two ends have agreed their keys, and sends it then.
   await publishState();
 
   // And again whenever the app's state changes.

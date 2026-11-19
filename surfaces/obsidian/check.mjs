@@ -16,11 +16,10 @@ await check("the Obsidian surface publishes the note in front of the user", asyn
     const plugin = connect(socket);
     let complaint = null;
     plugin.on((message) => {
-      if (message.op === "error") {
+      if (message.t === "error") {
         complaint = message.message;
       }
     });
-    await plugin.ready();
 
     await publishNote(plugin, {
       path: "notes/conduit.md",

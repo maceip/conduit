@@ -141,16 +141,16 @@ async function main() {
   }
 
   /**
-   * Wait for the key of the tunnel, then publish.
+   * Publish what the app knows.
    *
-   * The near end cannot seal anything until the two ends have agreed
-   * their keys, and a publish before that is refused.
+   * The plugin does not wait for the tunnel to be up: the near end
+   * holds what it publishes until there is a key to seal it under, and
+   * sends it then.  The waiting happens once, in the near end.
    *
    * @param {object} message the message
    * @returns {Promise<void>}
    */
   async function publish(message) {
-    await client.ready();
     await publishMessage(client, message);
   }
 }
