@@ -1,0 +1,10 @@
+sequenceDiagram
+  participant Extension
+  participant Broker
+  participant User
+  Extension->>Broker: POST /v1/device/code with surface and scopes
+  Broker-->>Extension: code and approval URL, valid 10 minutes
+  Extension->>User: show the code
+  User->>Broker: approve the code on the broker's page
+  Extension->>Broker: POST /v1/device/secret with code and instance
+  Broker-->>Extension: 256-bit secret bound to the approved grant

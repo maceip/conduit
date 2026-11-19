@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 833.28 143.45000000000002" width="1042" height="179" style="--bg:#FFFFFF;--fg:#27272A;background:var(--bg)">
+<style>
+  text { font-family: ui-monospace, Menlo, Consolas, "Liberation Mono", "Courier New", monospace; }
+  svg {
+    /* Derived from --bg and --fg (overridable via --line, --accent, etc.) */
+    --_text:          var(--fg);
+    --_text-sec:      var(--muted, color-mix(in srgb, var(--fg) 60%, var(--bg)));
+    --_text-muted:    var(--muted, color-mix(in srgb, var(--fg) 40%, var(--bg)));
+    --_text-faint:    color-mix(in srgb, var(--fg) 25%, var(--bg));
+    --_line:          var(--line, color-mix(in srgb, var(--fg) 50%, var(--bg)));
+    --_arrow:         var(--accent, color-mix(in srgb, var(--fg) 85%, var(--bg)));
+    --_node-fill:     var(--surface, color-mix(in srgb, var(--fg) 3%, var(--bg)));
+    --_node-stroke:   var(--border, color-mix(in srgb, var(--fg) 20%, var(--bg)));
+    --_group-fill:    var(--bg);
+    --_group-hdr:     color-mix(in srgb, var(--fg) 5%, var(--bg));
+    --_inner-stroke:  color-mix(in srgb, var(--fg) 12%, var(--bg));
+    --_key-badge:     color-mix(in srgb, var(--fg) 10%, var(--bg));
+  }
+</style>
+<defs>
+  <marker id="arrowhead" markerWidth="8" markerHeight="5" refX="7" refY="2.5" orient="auto">
+    <polygon points="0 0, 8 2.5, 0 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+  <marker id="arrowhead-start" markerWidth="8" markerHeight="5" refX="1" refY="2.5" orient="auto-start-reverse">
+    <polygon points="8 0, 0 2.5, 8 5" fill="var(--_arrow)" stroke="var(--_arrow)" stroke-width="0.75" stroke-linejoin="round" />
+  </marker>
+</defs>
+<polyline class="edge" data-from="E" data-to="B" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="publish, result" points="196.805,61.5 236.36900000000003,61.5 236.36900000000003,51 359.95300000000003,51 359.95300000000003,61.5 371.95300000000003,61.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="B" data-to="E" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="subscribe, call" points="371.95300000000003,73.80000000000001 359.95300000000003,73.80000000000001 359.95300000000003,84.30000000000001 232.805,84.30000000000001 232.805,73.80000000000001 196.805,73.80000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="B" data-to="C" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="publish, result" points="455.39900000000006,61.5 494.9630000000001,61.5 494.9630000000001,51 618.547,51 618.547,61.5 630.547,61.5" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<polyline class="edge" data-from="C" data-to="B" data-style="solid" data-arrow-start="false" data-arrow-end="true" data-label="subscribe, call" points="630.547,73.80000000000001 618.547,73.80000000000001 618.547,84.30000000000001 491.39900000000006,84.30000000000001 491.39900000000006,73.80000000000001 455.39900000000006,73.80000000000001" fill="none" stroke="var(--_line)" stroke-width="1" marker-end="url(#arrowhead)" />
+<g class="edge-label" data-from="E" data-to="B" data-label="publish, result">
+  <rect x="244.36900000000006" y="35" width="83.58400000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="286.16100000000006" y="50.15" text-anchor="middle" font-size="8.8" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">publish, result</text>
+</g>
+<g class="edge-label" data-from="B" data-to="E" data-label="subscribe, call">
+  <rect x="240.805" y="68.30000000000001" width="87.14800000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="284.379" y="83.45000000000002" text-anchor="middle" font-size="8.8" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">subscribe, call</text>
+</g>
+<g class="edge-label" data-from="B" data-to="C" data-label="publish, result">
+  <rect x="502.9630000000001" y="35" width="83.58400000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="544.7550000000001" y="50.15" text-anchor="middle" font-size="8.8" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">publish, result</text>
+</g>
+<g class="edge-label" data-from="C" data-to="B" data-label="subscribe, call">
+  <rect x="499.39900000000006" y="68.30000000000001" width="87.14800000000002" height="30.3" rx="2" ry="2" fill="var(--bg)" stroke="var(--_inner-stroke)" stroke-width="1" />
+  <text x="542.9730000000001" y="83.45000000000002" text-anchor="middle" font-size="8.8" font-weight="400" fill="var(--_text-sec)" dy="3.8499999999999996">subscribe, call</text>
+</g>
+<g class="node" data-id="E" data-label="extension in the app" data-shape="rectangle">
+  <rect x="40" y="49.199999999999996" width="156.805" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="118.4025" y="67.65" text-anchor="middle" font-size="10.4" font-weight="500" fill="var(--_text)" dy="4.55">extension in the app</text>
+</g>
+<g class="node" data-id="B" data-label="broker" data-shape="rectangle">
+  <rect x="371.95300000000003" y="49.199999999999996" width="83.446" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="413.67600000000004" y="67.65" text-anchor="middle" font-size="10.4" font-weight="500" fill="var(--_text)" dy="4.55">broker</text>
+</g>
+<g class="node" data-id="C" data-label="client: CLI, IDE, agent" data-shape="rectangle">
+  <rect x="630.547" y="49.199999999999996" width="162.733" height="36.900000000000006" rx="0" ry="0" fill="var(--_node-fill)" stroke="var(--_node-stroke)" stroke-width="0.75" />
+  <text x="711.9135" y="67.65" text-anchor="middle" font-size="10.4" font-weight="500" fill="var(--_text)" dy="4.55">client: CLI, IDE, agent</text>
+</g>
+</svg>

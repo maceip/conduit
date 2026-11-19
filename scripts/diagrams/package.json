@@ -1,0 +1,7 @@
+{
+  "name": "conduit-diagrams",
+  "private": true,
+  "type": "module",
+  "scripts": { "render": "node render.mjs" },
+  "dependencies": { "beautiful-mermaid": "^1" }
+}

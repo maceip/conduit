@@ -4,19 +4,19 @@
 
 Conduit is a protocol and reference implementation that lets a client (a CLI, an IDE or an agent) reach the state inside an app, over a tunnel the user can see and revoke. Most apps give third parties no way in. Apple runs over four hundred app extensions that most users never see listed.
 
-```
-   the app                    the broker                    the client
-┌──────────────────┐      ┌─────────────────────┐     ┌──────────────────┐
-│  ┌────────────┐  │      │  registry           │     │  CLI / SDK       │
-│  │ extension  │──┼──────┼─▶ scopes & grants   │◀┼────┼─▶ IDE / agent   │
-│  │ (near end) │  │ WSS  │  schema registry    │     │  (far end)      │
-│  └────────────┘  │◀─────┼─▶ typed relay       │     └──────────────────┘
-└──────────────────┘      │  replay ring        │
-                           │  (sees no payload)  │
-                           └─────────────────────┘
-```
+![The extension, the broker and the client](docs/diagrams/topology.svg)
 
 The client never touches the app's process, memory or permissions. It gets only what the user granted. See [`docs/architecture.md`](docs/architecture.md) and [`docs/protocol.md`](docs/protocol.md).
+
+## The protocol
+
+An extension pairs once. It asks the broker for a code, the user approves the code on the broker's own page, and the extension gets a secret tied to the scopes the user approved.
+
+![Pairing an extension](docs/diagrams/pairing.svg)
+
+After that, both ends open a WebSocket to the broker and say hello. Each hello carries the end's public key and the last `seq` it saw, so a reconnecting end gets the frames it missed from the broker's ring of the last 256. The broker forwards sealed payloads without opening them and refuses anything outside the grant.
+
+![A session](docs/diagrams/session.svg)
 
 ## How it works
 

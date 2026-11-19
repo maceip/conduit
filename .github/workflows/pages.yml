@@ -7,6 +7,7 @@ on:
       - "docs/**"
       - "README.md"
       - "spec/**"
+      - "scripts/pages-readme.sh"
       - ".github/workflows/pages.yml"
 
 permissions:
@@ -31,16 +32,23 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pandoc
+      - name: Install mermaid-ascii
+        run: |
+          curl -sSfL https://github.com/AlexanderGrooff/mermaid-ascii/releases/download/1.6.2/mermaid-ascii_Linux_x86_64.tar.gz | tar xz -C /usr/local/bin mermaid-ascii
+          mermaid-ascii --help > /dev/null
       - name: Build the documents
         run: |
           mkdir -p _site
-          pandoc README.md --standalone --include-in-header=docs/head.html --metadata title=Conduit -o _site/index.html
+          # On the site the diagrams are text, drawn by mermaid-ascii.
+          sh scripts/pages-readme.sh > "$RUNNER_TEMP/README.md"
+          pandoc "$RUNNER_TEMP/README.md" --standalone --include-in-header=docs/head.html --metadata title=Conduit -o _site/index.html
           for file in docs/*.md docs/research/*.md; do
             out="_site/${file%.md}.html"
             mkdir -p "$(dirname "$out")"
             pandoc "$file" --standalone --include-in-header=docs/head.html --metadata title=Conduit -o "$out"
           done
           cp -r spec _site/spec
+          cp docs/social-preview.jpg _site/docs/
           # The links in the documents point at the markdown; the site
           # serves the HTML.
           find _site -name '*.html' -print0 | xargs -0 sed -i -e 's|\.md)|.html)|g'
