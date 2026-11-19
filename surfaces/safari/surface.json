@@ -1,0 +1,6 @@
+{
+  "id": "dev.conduit.browser.tabs/v1",
+  "channel": "tabs",
+  "schemas": ["dev.conduit.browser.tab/v1"],
+  "scopes": ["browser.tabs.read"]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "dev.conduit.neovim.buffer/v1",
+  "channel": "buffer",
+  "schemas": ["dev.conduit.neovim.buffer/v1"],
+  "scopes": ["neovim.buffer.read"],
+  "socket": "/tmp/conduit-neovim.sock"
+}

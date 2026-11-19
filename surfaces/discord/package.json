@@ -1,0 +1,11 @@
+{
+  "name": "conduit-discord",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Conduit surface for Discord. Discord has no manifest file: this is the bot's own configuration, not something Discord reads. It only tells Node that the files in this directory are CommonJS.",
+  "type": "commonjs",
+  "main": "bot.js",
+  "scripts": {
+    "check": "node check.mjs"
+  }
+}

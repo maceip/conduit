@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 pub mod adapter;
+pub mod end;
 pub mod sealed;
 
 /// The version of the protocol this crate speaks.
@@ -175,6 +176,22 @@ impl SchemaId {
         Some(SchemaId::new(name, major))
     }
 
+    /// The schema id in that string, or the first version of that name
+    /// if the string carries no version.
+    ///
+    /// A plugin may name its schema either way: `dev.conduit.mail.message`
+    /// is the first version of that schema, and `dev.conduit.mail.message/v1`
+    /// is the same thing said outright.
+    pub fn parse_or_first(text: &str) -> Option<SchemaId> {
+        if let Some(schema) = SchemaId::parse(text) {
+            return Some(schema);
+        }
+        if text.contains('/') || !name_is_well_formed(text) {
+            return None;
+        }
+        Some(SchemaId::new(text, 1))
+    }
+
     /// The name of the schema, without its version.
     pub fn name(&self) -> &str {
         &self.name
@@ -250,6 +267,19 @@ impl Scope {
     /// Whether the scope exercises that verb.
     pub fn is(&self, verb: &str) -> bool {
         self.verb == verb
+    }
+
+    /// The scope in that string, if it is one.
+    ///
+    /// A scope is written `namespace.verb`, and the namespace may have
+    /// dots of its own: `browser.tabs.read` is the verb `read` in the
+    /// namespace `browser.tabs`.
+    pub fn parse(text: &str) -> Option<Scope> {
+        let (namespace, verb) = text.rsplit_once('.')?;
+        if namespace.is_empty() || verb.is_empty() {
+            return None;
+        }
+        Some(Scope::new(namespace, verb))
     }
 }
 

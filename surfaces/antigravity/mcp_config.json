@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "state": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/mcp/server.mjs"],
+      "env": {
+        "CONDUIT_SOCKET": "${CONDUIT_NEAR_END_SOCKET}"
+      },
+      "variables": [
+        {
+          "name": "CONDUIT_NEAR_END_SOCKET",
+          "title": "The socket of the Conduit near end",
+          "description": "The path of the Unix socket the Conduit near end listens on, for example /run/conduit/antigravity.sock."
+        }
+      ]
+    }
+  }
+}

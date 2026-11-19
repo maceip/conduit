@@ -1,0 +1,6 @@
+{
+  "id": "dev.conduit.homeassistant.entities/v1",
+  "channel": "homeassistant",
+  "schemas": ["dev.conduit.homeassistant.state/v1"],
+  "scopes": ["homeassistant.state.read"]
+}

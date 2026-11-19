@@ -4,7 +4,7 @@ members = [
     "crates/conduit-protocol",
     "crates/conduit-broker",
     "crates/conduit-client",
-    "crates/conduit-native-host",
+    "crates/conduit-near-end",
 ]
 
 [workspace.package]

@@ -1,0 +1,7 @@
+{
+  "id": "dev.conduit.shortcuts.state/v1",
+  "channel": "shortcuts",
+  "schemas": ["dev.conduit.shortcuts.state/v1"],
+  "scopes": ["shortcuts.state.read"],
+  "socket": "/tmp/conduit-shortcuts.sock"
+}

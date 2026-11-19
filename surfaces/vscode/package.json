@@ -1,0 +1,25 @@
+{
+  "name": "conduit-vscode",
+  "displayName": "Conduit for VS Code",
+  "description": "Publishes what VS Code has open to a Conduit client.",
+  "version": "0.1.0",
+  "publisher": "dev.conduit",
+  "license": "MIT OR Apache-2.0",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": ["Other"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "conduit.publishActiveTab",
+        "title": "Conduit: Publish the active tab"
+      }
+    ]
+  },
+  "scripts": {
+    "check": "node check.mjs"
+  }
+}

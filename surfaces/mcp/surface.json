@@ -1,0 +1,6 @@
+{
+  "id": "dev.conduit.mcp.state/v1",
+  "channel": "mcp",
+  "schemas": ["dev.conduit.mcp.state/v1"],
+  "scopes": ["mcp.state.read", "mcp.state.write"]
+}

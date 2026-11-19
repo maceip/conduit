@@ -1,0 +1,48 @@
+{
+  "_metadata": {
+    "major_version": 1
+  },
+  "display_information": {
+    "name": "Conduit",
+    "description": "Publishes what a Slack channel says to a Conduit client.",
+    "background_color": "#1D1D1D",
+    "long_description": "Conduit is a Conduit surface for Slack. It reads the messages of the channels it is in and publishes them, in plain JSON, to a Conduit near end, which seals them and sends them on to a Conduit client. The app never sees a key of its own."
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Conduit",
+      "always_online": false
+    },
+    "slash_commands": [
+      {
+        "command": "/conduit",
+        "description": "Publish what this channel says to a Conduit client.",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "channels:history",
+        "channels:read",
+        "groups:history",
+        "groups:read",
+        "im:history",
+        "im:read",
+        "mpim:history"
+      ]
+    }
+  },
+  "settings": {
+    "event_subscriptions": {
+      "bot_events": [
+        "message.channels"
+      ]
+    },
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": true,
+    "is_hosted": false,
+    "token_rotation_enabled": false
+  }
+}

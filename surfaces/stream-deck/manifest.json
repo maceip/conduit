@@ -1,0 +1,47 @@
+{
+  "Author": "dev.conduit",
+  "Description": "Publishes what a Stream Deck key says to a Conduit client.",
+  "Icon": "imgs/plugin",
+  "Icons": {
+    "20": "imgs/plugin-20",
+    "40": "imgs/plugin-40"
+  },
+  "Name": "Conduit",
+  "URL": "https://example.invalid/conduit",
+  "Version": "1.0",
+  "SDKVersion": 1,
+  "Software": {
+    "MinVersion": "5.0"
+  },
+  "CodePath": "index.js",
+  "Actions": [
+    {
+      "Name": "Conduit Key",
+      "UUID": "dev.conduit.streamdeck.key",
+      "Icon": "imgs/action",
+      "Icons": {
+        "20": "imgs/action-20",
+        "40": "imgs/action-40"
+      },
+      "Tooltip": "Publishes the press of this key to a Conduit client.",
+      "States": [
+        {
+          "Image": "imgs/state-down",
+          "Title": "Pressed"
+        }
+      ],
+      "SupportedDevices": ["streamdeck"],
+      "SupportedIn": ["plugin"],
+      "PropertyInspectorPath": "property-inspector.html",
+      "Encoder": {
+        "background": "imgs/encoder-background",
+        "layout": "$B1",
+        "TriggerDescription": {
+          "Push": "Publish the press",
+          "Rotate": "Nothing",
+          "Touch": "Nothing"
+        }
+      }
+    }
+  ]
+}

@@ -9,6 +9,6 @@
   <key>CFBundleVersion</key>
   <string>0.1.0</string>
   <key>CFBundleExecutable</key>
-  <string>conduit-native-host</string>
+  <string>conduit-near-end</string>
 </dict>
 </plist>

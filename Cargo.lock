@@ -233,7 +233,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "conduit-native-host"
+name = "conduit-near-end"
 version = "0.1.0"
 dependencies = [
  "axum",

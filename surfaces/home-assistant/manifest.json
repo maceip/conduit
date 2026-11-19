@@ -1,0 +1,11 @@
+{
+  "domain": "conduit",
+  "name": "Conduit",
+  "version": "0.1.0",
+  "documentation": "https://github.com/dev-conduit/conduit/tree/main/surfaces/home-assistant",
+  "requirements": [],
+  "dependencies": [],
+  "codeowners": ["@dev-conduit"],
+  "iot_class": "local_push",
+  "integration_type": "service"
+}

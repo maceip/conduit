@@ -83,6 +83,14 @@ async fn main() {
         .put_token(&token, vec![tabs_id, windows_id, surface_id])
         .await;
 
+    // A bootstrap file, if one is named: the surfaces and the grants of
+    // a deployment, said in one place.
+    if let Ok(path) = std::env::var("CONDUIT_BOOTSTRAP") {
+        conduit_broker::bootstrap(registry.as_ref(), &path)
+            .await
+            .unwrap_or_else(|error| panic!("the bootstrap {path} could not be read ({error})"));
+    }
+
     let state = AppState {
         registry,
         tunnels: std::sync::Arc::new(tokio::sync::Mutex::new(Default::default())),

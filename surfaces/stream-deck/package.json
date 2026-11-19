@@ -1,0 +1,14 @@
+{
+  "name": "conduit-stream-deck",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Conduit surface for Elgato Stream Deck. The manifest of the plugin is manifest.json; this file only tells Node that the files in this directory are CommonJS.",
+  "type": "commonjs",
+  "main": "index.js",
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "@elgato/streamdeck": "^1.4.1"
+  }
+}

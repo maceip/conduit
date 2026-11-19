@@ -1,0 +1,22 @@
+{
+  "$schema": "https://antigravity.google/schemas/v1/plugin.json",
+  "name": "conduit-surface",
+  "displayName": "Conduit Surface",
+  "version": "0.1.0",
+  "description": "Publishes what the Antigravity workspace knows to a Conduit client, and exposes it to the agent as an MCP tool.",
+  "logo": "assets/logo.svg",
+  "suggestedPrompts": [
+    "What does the Conduit surface know about this workspace?",
+    "Which files are open in the Conduit surface?"
+  ],
+  "skills": ["skills/conduit-surface"],
+  "disabled": false,
+  "author": {
+    "name": "Conduit",
+    "url": "https://github.com/dev-conduit/conduit"
+  },
+  "homepage": "https://github.com/dev-conduit/conduit",
+  "repository": "https://github.com/dev-conduit/conduit",
+  "license": "MIT OR Apache-2.0",
+  "keywords": ["conduit", "surface", "mcp", "workspace"]
+}

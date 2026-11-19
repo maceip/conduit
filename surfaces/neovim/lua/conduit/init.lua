@@ -1,0 +1,361 @@
+-- The Conduit surface for Neovim.
+--
+-- Neovim runs every file in plugin/ when it starts, so a plugin is just a
+-- file in the right place: there is no manifest and no registration step.
+-- plugin/conduit.lua is the file Neovim runs; this module is what it uses.
+--
+-- The plugin publishes what the editor knows in plain JSON to the near
+-- end, which holds the socket to the broker and does the sealing.  The
+-- plugin never holds a key and never seals anything itself.
+--
+-- The protocol is one JSON object per message: a four-byte big-endian
+-- length, and then that many bytes of JSON.
+--
+--     plugin  ->  {"op":"publish","schema":"dev.conduit.neovim.buffer/v1","payload":{...}}
+--     near end ->  {"op":"status","surface":"...","agreed":true,"connected":true,"seq":12}
+
+local M = {}
+
+--- The schema of a buffer.
+M.BUFFER_SCHEMA = "dev.conduit.neovim.buffer/v1"
+
+--- Where the near end is, when nobody says otherwise.
+M.DEFAULT_SOCKET = "/tmp/conduit-neovim.sock"
+
+--- How long a publish waits for the tunnel to agree, in milliseconds.
+M.AGREEMENT_TIMEOUT = 10000
+
+--- How long between two publishes of the same buffer, in milliseconds.
+M.THROTTLE = 1000
+
+local uv = vim.uv or vim.loop
+
+--- The pipe to the near end, or nil when there is not one yet.
+local pipe = nil
+
+--- Whether a connection is being made.
+local connecting = false
+
+--- The bytes that have come in but do not make a message yet.
+local incoming = ""
+
+--- Whether the two ends have agreed their keys.  The near end cannot seal
+--- anything until they have, so nothing is published before this is true.
+local agreed = false
+
+--- The publishes that are waiting for the tunnel to agree.
+local pending = {}
+
+--- The timer that gives up on the tunnel.
+local wait_timer = nil
+
+--- The timer that asks how the tunnel is.
+local status_timer = nil
+
+--- When the buffer was published last, in milliseconds.
+local last_publish = 0
+
+--- What happens when the near end says something.
+local handlers = {}
+
+--- Say something about the plugin.
+local function complain(message)
+  vim.schedule(function()
+    vim.notify("conduit: " .. message, vim.log.levels.WARN)
+  end)
+end
+
+--- The JSON of a value.
+local function encode(value)
+  if vim.json ~= nil and vim.json.encode ~= nil then
+    return vim.json.encode(value)
+  end
+  return vim.fn.json_encode(value)
+end
+
+--- The value of some JSON.
+local function decode(text)
+  if vim.json ~= nil and vim.json.decode ~= nil then
+    return vim.json.decode(text)
+  end
+  return vim.fn.json_decode(text)
+end
+
+--- A message: a four-byte big-endian length, and then the JSON.
+local function frame(message)
+  local body = encode(message)
+  local length = #body
+  local header = string.char(
+    math.floor(length / 16777216) % 256,
+    math.floor(length / 65536) % 256,
+    math.floor(length / 256) % 256,
+    length % 256)
+  return header .. body
+end
+
+--- Write a message to the near end.
+local function send(message)
+  if pipe == nil then
+    return false
+  end
+  local ok, err = pcall(function()
+    pipe:write(frame(message))
+  end)
+  if not ok then
+    complain("the message could not be written: " .. tostring(err))
+    return false
+  end
+  return true
+end
+
+--- Take the messages out of what has come in.
+local function take_messages()
+  local messages = {}
+  while #incoming >= 4 do
+    local b1, b2, b3, b4 = string.byte(incoming, 1, 4)
+    local length = b1 * 16777216 + b2 * 65536 + b3 * 256 + b4
+    if #incoming < 4 + length then
+      break
+    end
+    local body = string.sub(incoming, 5, 4 + length)
+    incoming = string.sub(incoming, 5 + length)
+    local ok, message = pcall(decode, body)
+    if ok and type(message) == "table" then
+      table.insert(messages, message)
+    end
+  end
+  return messages
+end
+
+--- Send the publishes that were waiting for the tunnel.
+local function flush()
+  if #pending == 0 then
+    return
+  end
+  local queue = pending
+  pending = {}
+  for _, item in ipairs(queue) do
+    send({ op = "publish", schema = item.schema, payload = item.payload })
+  end
+end
+
+--- Stop waiting for the tunnel to agree.
+local function stop_waiting()
+  if wait_timer ~= nil then
+    wait_timer:stop()
+    wait_timer:close()
+    wait_timer = nil
+  end
+end
+
+--- Stop asking how the tunnel is.
+local function stop_asking()
+  if status_timer ~= nil then
+    status_timer:stop()
+    status_timer:close()
+    status_timer = nil
+  end
+end
+
+--- Wait for the tunnel to agree, and give up after the timeout.
+local function start_waiting()
+  if wait_timer ~= nil then
+    return
+  end
+  wait_timer = uv.new_timer()
+  wait_timer:start(M.AGREEMENT_TIMEOUT, 0, function()
+    vim.schedule(function()
+      stop_waiting()
+      stop_asking()
+      if #pending > 0 then
+        complain("the near end did not agree the keys of the tunnel; "
+          .. #pending .. " publishes were dropped")
+        pending = {}
+      end
+    end)
+  end)
+end
+
+--- Ask whether the tunnel has a key, again and again.
+local function start_asking()
+  if status_timer ~= nil then
+    return
+  end
+  status_timer = uv.new_timer()
+  status_timer:start(0, 100, function()
+    vim.schedule(function()
+      if pipe ~= nil then
+        send({ op = "status" })
+      end
+    end)
+  end)
+end
+
+--- Remember what the near end said.
+local function note(message)
+  if message.op == "status" then
+    if message.agreed == true then
+      agreed = true
+      stop_asking()
+      stop_waiting()
+      flush()
+    end
+  elseif message.op == "error" then
+    complain("the near end refused: " .. tostring(message.message))
+  end
+  for _, handler in ipairs(handlers) do
+    vim.schedule(function()
+      handler(message)
+    end)
+  end
+end
+
+--- Open the socket to the near end.
+local function connect()
+  if pipe ~= nil or connecting then
+    return
+  end
+  connecting = true
+  local handle = uv.new_pipe(false)
+  handle:connect(M.socket_path(), function(err)
+    connecting = false
+    if err ~= nil then
+      vim.schedule(function()
+        complain("the near end is not there: " .. tostring(err))
+      end)
+      handle:close()
+      return
+    end
+    pipe = handle
+    handle:read_start(function(read_err, chunk)
+      if read_err ~= nil then
+        vim.schedule(function()
+          complain("the socket to the near end broke: " .. tostring(read_err))
+        end)
+        handle:close()
+        pipe = nil
+        return
+      end
+      if chunk ~= nil then
+        incoming = incoming .. chunk
+        for _, message in ipairs(take_messages()) do
+          note(message)
+        end
+      end
+    end)
+    start_asking()
+  end)
+end
+
+--- Where the near end is.
+---
+--- The option of `setup` first, then the environment, and then the
+--- default.
+---
+--- @return string
+function M.socket_path()
+  if M.socket_path_override ~= nil and M.socket_path_override ~= "" then
+    return M.socket_path_override
+  end
+  local path = vim.env.CONDUIT_SOCKET
+  if path ~= nil and path ~= "" then
+    return path
+  end
+  return M.DEFAULT_SOCKET
+end
+
+--- Publish something, once the tunnel has a key.
+---
+--- The near end cannot seal anything until the two ends have agreed their
+--- keys, and a publish before that is refused.  So the publish waits for
+--- the tunnel to agree, with a timeout: until then the publish waits in
+--- the queue, and if the tunnel does not agree in time it is dropped.
+---
+--- @param schema string the schema of the payload
+--- @param payload table the payload
+--- @return boolean whether the publish was sent
+function M.publish(schema, payload)
+  connect()
+  if not agreed then
+    table.insert(pending, { schema = schema, payload = payload })
+    start_waiting()
+    start_asking()
+    return false
+  end
+  return send({ op = "publish", schema = schema, payload = payload })
+end
+
+--- What is said about the buffer in front of the user.
+---
+--- @return table the payload
+function M.buffer_payload()
+  local buffer = vim.api.nvim_get_current_buf()
+  local name = vim.api.nvim_buf_get_name(buffer)
+  local cursor = vim.api.nvim_win_get_cursor(0)
+  return {
+    path = name,
+    name = vim.fn.fnamemodify(name, ":t"),
+    lines = vim.api.nvim_buf_line_count(buffer),
+    cursorLine = cursor[1],
+    cursorColumn = cursor[2],
+    modified = vim.bo[buffer].modified,
+    filetype = vim.bo[buffer].filetype,
+  }
+end
+
+--- Publish the buffer in front of the user.
+---
+--- The buffer is published when it changes, and the changes come faster
+--- than a tunnel wants them, so the publishes are throttled.
+---
+--- @param force boolean publish even inside the throttle
+--- @return boolean whether the publish was sent
+function M.publish_buffer(force)
+  local now = uv.now()
+  if not force and now - last_publish < M.THROTTLE then
+    return false
+  end
+  last_publish = now
+  return M.publish(M.BUFFER_SCHEMA, M.buffer_payload())
+end
+
+--- Say what happens when the near end says something.
+---
+--- @param handler function the handler
+function M.on(handler)
+  table.insert(handlers, handler)
+end
+
+--- Set the surface up.
+---
+--- @param options table options: `socket` and `throttle`
+function M.setup(options)
+  options = options or {}
+
+  if options.socket ~= nil and options.socket ~= "" then
+    M.socket_path_override = options.socket
+  end
+  if options.throttle ~= nil then
+    M.THROTTLE = options.throttle
+  end
+
+  local group = vim.api.nvim_create_augroup("Conduit", { clear = true })
+  vim.api.nvim_create_autocmd(
+    { "BufEnter", "BufWritePost", "CursorMoved", "TextChanged" },
+    {
+      group = group,
+      callback = function()
+        M.publish_buffer()
+      end,
+    })
+
+  vim.api.nvim_create_user_command("ConduitPublish", function()
+    M.publish_buffer(true)
+  end, { desc = "Publish the current buffer to a Conduit client." })
+
+  vim.schedule(function()
+    M.publish_buffer(true)
+  end)
+end
+
+return M

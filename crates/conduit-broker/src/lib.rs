@@ -461,3 +461,107 @@ pub fn scopes_the_grant_allows(grant: &Grant, wanted: &[Scope]) -> Result<(), Ve
         Err(missing)
     }
 }
+
+/// Seed the registry from a bootstrap file.
+///
+/// The file says which surfaces a deployment offers, which grants exist
+/// for them, and which token a client may use:
+///
+/// ```json
+/// {
+///   "token": "bootstrap-token",
+///   "surfaces": [
+///     {"id": "dev.conduit.vscode.tabs/v1",
+///      "schemas": ["dev.conduit.vscode.tab/v1"],
+///      "scopes": ["vscode.tabs.read"]}
+///   ],
+///   "grants": [
+///     {"surface": "dev.conduit.vscode.tabs/v1",
+///      "instance": "bootstrap",
+///      "scopes": ["vscode.tabs.read"]}
+///   ]
+/// }
+/// ```
+pub async fn bootstrap(registry: &InMemoryRegistry, path: &str) -> std::io::Result<()> {
+    let text = std::fs::read_to_string(path)?;
+    let file: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| std::io::Error::other(format!("the bootstrap is not JSON ({error})")))?;
+
+    let mut surface_ids = Vec::new();
+    if let Some(surfaces) = file.get("surfaces").and_then(|s| s.as_array()) {
+        for surface in surfaces {
+            let id = surface
+                .get("id")
+                .and_then(|id| id.as_str())
+                .and_then(conduit_protocol::SchemaId::parse)
+                .ok_or_else(|| {
+                    std::io::Error::other("a surface of the bootstrap has no usable id")
+                })?;
+            let schemas = surface
+                .get("schemas")
+                .and_then(|s| s.as_array())
+                .map(|schemas| {
+                    schemas
+                        .iter()
+                        .filter_map(|schema| schema.as_str())
+                        .filter_map(conduit_protocol::SchemaId::parse)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let scopes = scope_strings(surface.get("scopes"));
+            registry
+                .put_surface(conduit_protocol::Surface {
+                    id: id.clone(),
+                    schemas,
+                    scopes,
+                    schemes: vec!["p256-aes256gcm/v1".to_string()],
+                })
+                .await;
+            surface_ids.push(id);
+        }
+    }
+
+    if let Some(grants) = file.get("grants").and_then(|g| g.as_array()) {
+        for grant in grants {
+            let surface = grant
+                .get("surface")
+                .and_then(|surface| surface.as_str())
+                .and_then(conduit_protocol::SchemaId::parse)
+                .ok_or_else(|| {
+                    std::io::Error::other("a grant of the bootstrap has no usable surface")
+                })?;
+            let instance = grant
+                .get("instance")
+                .and_then(|instance| instance.as_str())
+                .unwrap_or("bootstrap")
+                .to_string();
+            registry
+                .put_grant(conduit_protocol::Grant {
+                    surface,
+                    instance,
+                    scopes: scope_strings(grant.get("scopes")),
+                    schemes: vec!["p256-aes256gcm/v1".to_string()],
+                })
+                .await;
+        }
+    }
+
+    if let Some(token) = file.get("token").and_then(|token| token.as_str()) {
+        registry.put_token(token, surface_ids).await;
+    }
+    Ok(())
+}
+
+/// The scopes of a bootstrap entry, read as strings.
+fn scope_strings(value: Option<&serde_json::Value>) -> Vec<conduit_protocol::Scope> {
+    value
+        .and_then(|value| value.as_array())
+        .map(|scopes| {
+            scopes
+                .iter()
+                .filter_map(|scope| scope.as_str())
+                .filter_map(conduit_protocol::Scope::parse)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}

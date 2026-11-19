@@ -1,0 +1,13 @@
+{
+  "application_id": "000000000000000000",
+  "intents": 32769,
+  "intents_names": ["GUILDS", "MESSAGE_CONTENT"],
+  "oauth2_install_url": "https://discord.com/oauth2/authorize?client_id=000000000000000000&scope=bot%20applications.commands",
+  "api_base": "https://discord.com/api/v10",
+  "gateway_endpoint": "wss://gateway.discord.gg/?v=10&encoding=json",
+  "slash_command": {
+    "name": "conduit",
+    "description": "Publish what this channel says to a Conduit client.",
+    "type": 1
+  }
+}

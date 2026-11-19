@@ -1,0 +1,11 @@
+{
+  "name": "conduit-slack",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The Conduit surface for Slack. This is not a Slack manifest: the Slack app manifest is manifest.json.",
+  "type": "commonjs",
+  "main": "app.js",
+  "scripts": {
+    "check": "node check.mjs"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "id": "dev.conduit.antigravity.workspace/v1",
+  "channel": "antigravity",
+  "schemas": ["dev.conduit.antigravity.state/v1"],
+  "scopes": ["antigravity.workspace.read"]
+}

@@ -68,22 +68,36 @@ export function browserStore() {
   return api.storage.session || api.storage.local;
 }
 
-/* The Safari native host, when there is one. */
-function findNativeHost() {
+/* The Safari native host, when there is one.
+ *
+ * The port stays open: the near end holds the socket, the keys and the
+ * sealing, and it says what happens as it happens.  The messages are
+ * the near end's own messages, the same ones a plugin on a socket
+ * would send. */
+export function findNativeHost() {
   const api = browserApi();
   if (api && api.runtime && api.runtime.connectNative) {
     return {
       available: true,
-      send(message) {
-        return new Promise((resolve, reject) => {
-          const port = api.runtime.connectNative("dev.conduit.native");
-          port.onMessage.addListener((reply) => {
-            port.disconnect();
-            resolve(reply);
-          });
-          port.onDisconnect.addListener(() => reject(new Error("the native host went away")));
-          port.postMessage(message);
+      open() {
+        const port = api.runtime.connectNative("dev.conduit.native");
+        const handlers = [];
+        port.onMessage.addListener((message) => {
+          for (const handler of handlers) {
+            handler(message);
+          }
         });
+        return {
+          send(message) {
+            port.postMessage(message);
+          },
+          on(handler) {
+            handlers.push(handler);
+          },
+          close() {
+            port.disconnect();
+          },
+        };
       },
     };
   }
@@ -145,6 +159,9 @@ export function createNearEnd(surface, options = {}) {
     prefix: null,
     peer: null,
     tunnel: null,
+    /* The native host, when there is one: it holds the socket, the keys
+     * and the sealing, and this end is only the surface. */
+    native: null,
   };
 
   /* Read the last sequence number we saw, so that a reconnect can ask
@@ -211,6 +228,14 @@ export function createNearEnd(surface, options = {}) {
   /* Publish the state of the surface, sealed under the key of the
    * tunnel.  Nothing is published when the read says nothing. */
   async function publish(schema, payload) {
+    if (state.native) {
+      /* The near end seals it; this end only says what it knows. */
+      if (!state.tunnel || payload === null || payload === undefined) {
+        return false;
+      }
+      state.native.send({ op: "publish", schema, payload });
+      return true;
+    }
     if (!state.tunnel || payload === null || payload === undefined) {
       return false;
     }
@@ -279,29 +304,41 @@ export function createNearEnd(surface, options = {}) {
     state.running = true;
 
     if (nativeHost) {
-      /* Safari: the native host holds the socket, because the background
-       * context will be unloaded and a loopback socket will not work. */
-      nativeHost
-        .send({
-          action: "connect",
-          url: config.broker,
-          surface: surface.id,
-          secret: config.secret,
-          instance: config.instance,
-          crypto: {
-            scheme: "p256-aes256gcm/v1",
-            public: toBase64Url(state.keys.publicBytes),
-            prefix: toBase64Url(state.prefix),
-          },
-        })
-        .then((reply) => {
-          if (reply && reply.ok) {
-            state.backoff = config.backoffMinMs;
-          } else {
-            scheduleReconnect();
-          }
-        })
-        .catch(() => scheduleReconnect());
+      /* Safari: the near end holds the socket, because the background
+       * context will be unloaded and a loopback socket will not work.
+       *
+       * It is told where the broker is and what the secret is, and it
+       * does the rest: the keys, the sealing, the pings. */
+      const port = nativeHost.open();
+      state.native = port;
+      port.on(async (message) => {
+        if (!message || typeof message !== "object") {
+          return;
+        }
+        if (message.op === "status" && message.agreed) {
+          state.tunnel = { native: true };
+          state.backoff = config.backoffMinMs;
+          /* The far end asked for the surface: say what it reads now. */
+          await publishState();
+          return;
+        }
+        if (message.op === "event") {
+          /* The far end said something: the surface answers with what
+           * it reads now, under the schema it asked for. */
+          await publishState(message.schema);
+          return;
+        }
+        if (message.op === "error") {
+          state.tunnel = null;
+          scheduleReconnect();
+        }
+      });
+      port.send({
+        op: "connect",
+        broker: config.broker,
+        secret: config.secret,
+        instance: config.instance,
+      });
       return;
     }
 
@@ -394,6 +431,11 @@ export function createNearEnd(surface, options = {}) {
       state.socket.close();
       state.socket = null;
     }
+    if (state.native) {
+      state.native.close();
+      state.native = null;
+      state.tunnel = null;
+    }
   }
 
   /* The start of the tunnel: with the secret the user gave, if any. */
@@ -421,7 +463,7 @@ export function createNearEnd(surface, options = {}) {
       return {
         surface: surface.id,
         sequence: state.sequence,
-        connected: isOpen(state.socket),
+        connected: state.native ? !!state.tunnel : isOpen(state.socket),
         agreed: !!state.tunnel,
       };
     },

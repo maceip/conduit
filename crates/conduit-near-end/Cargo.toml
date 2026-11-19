@@ -1,6 +1,6 @@
 [package]
-name = "conduit-native-host"
-description = "The Safari near end of a conduit tunnel: a native host that holds the socket."
+name = "conduit-near-end"
+description = "The near end of a conduit tunnel: a process that holds the socket of one or more surfaces."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "conduit-native-host"
+name = "conduit-near-end"
 path = "src/main.rs"
 
 [dependencies]

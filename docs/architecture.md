@@ -177,7 +177,8 @@ this is where the research pays off.
 * the native host holds the WebSocket. WebSocket connections to `127.0.0.1`
   are broken in Safari => no loopback fallback; and the native host
   survives the background page dying, which is what a tunnel needs.
-* the native host is a Rust binary (`clients/native-host`), since native
+* the native host is the near end in its `--native` mode
+  (`crates/conduit-near-end`), since native
   messaging runs any executable and the rest of the project is Rust.
 * Safari native messaging has a measured 150-active-request guard and needs
   ~40 ms spacing between calls => the host keeps 1 request in flight and
