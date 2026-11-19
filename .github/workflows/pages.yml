@@ -52,7 +52,7 @@ jobs:
           # The links in the documents point at the markdown; the site
           # serves the HTML.
           find _site -name '*.html' -print0 | xargs -0 sed -i -e 's|\.md)|.html)|g'
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
       - id: deployment
