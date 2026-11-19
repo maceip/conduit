@@ -5,12 +5,22 @@
   "description": "typed, scoped tunnel from this browser to a conduit client",
   "minimum_chrome_version": "121",
   "background": {
-    "scripts": ["background.js"],
+    "scripts": [
+      "background.js"
+    ],
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["storage", "tabs"],
-  "host_permissions": ["wss://broker.example/*"],
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "wss://broker.example/*",
+    "https://broker.example/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*"
+  ],
   "action": {
     "default_title": "Conduit",
     "default_popup": "popup.html"

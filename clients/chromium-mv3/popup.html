@@ -4,13 +4,22 @@
     <meta charset="utf-8" />
     <title>Conduit</title>
     <style>
-      body { font: 13px/1.5 system-ui, sans-serif; margin: 12px; width: 240px; }
+      body { font: 13px/1.5 system-ui, sans-serif; margin: 12px; width: 260px; }
+      form { display: flex; gap: 6px; margin-top: 8px; }
+      input { flex: 1; min-width: 0; font: inherit; }
       button { margin-top: 8px; }
+      form button { margin-top: 0; }
+      #error { color: #a33; min-height: 1.5em; margin: 4px 0 0; }
     </style>
   </head>
   <body>
-    <p id="status">connecting…</p>
-    <button id="toggle" type="button">stop</button>
+    <p id="status">asking the tunnel…</p>
+    <button id="toggle" type="button" disabled>stop</button>
+    <form id="configure">
+      <input id="broker" name="broker" aria-label="broker address" type="text" spellcheck="false" placeholder="wss://broker.example/v1/tunnel" />
+      <button id="save" type="submit">save</button>
+    </form>
+    <p id="error" role="status"></p>
     <script src="popup.js"></script>
   </body>
 </html>

@@ -24,12 +24,14 @@
  * background context without a word.
  */
 
-import { agree, generateKeyPair, open as openPayload, seal, toBase64Url } from "./sealing.js";
+import { agree, fromBase64Url, generateKeyPair, open as openPayload, seal, toBase64Url } from "./sealing.js";
 import { CHANNEL, SCHEMA, SCOPE, readTab } from "./surface-browser.js";
+import { DEFAULT_BROKER, endpoint, parseBroker, tunnelUrl } from "./config.js";
 
 const CONFIG = {
-  // The broker.  A hosted broker is wss://; a local one is ws://.
-  broker: "wss://broker.example/v1/tunnel",
+  // The broker.  A hosted broker is wss://; a local one is ws://.  The
+  // user sets it in the popup; it lives in storage as conduit.broker.
+  broker: DEFAULT_BROKER,
 
   // The surface this end offers, and the channel it publishes on.
   surface: "dev.conduit.browser.tabs/v1",
@@ -46,6 +48,9 @@ const CONFIG = {
   // The ping, in milliseconds.  The worker's idle timer is 30 seconds.
   pingEveryMs: 20000,
 
+  // How often to ask whether the user approved the code.
+  approvalPollMs: 2000,
+
   // The backoff, in milliseconds.
   backoffMinMs: 1000,
   backoffMaxMs: 30000,
@@ -53,6 +58,7 @@ const CONFIG = {
 
 const state = {
   socket: null,
+  welcomed: false,
   sequence: 0,
   backoff: CONFIG.backoffMinMs,
   pingTimer: null,
@@ -63,7 +69,11 @@ const state = {
   peer: null,
   tunnel: null,
   pendingCode: null,
+  pendingExpires: 0,
   approvalTimer: null,
+  starting: null,
+  inbox: Promise.resolve(),
+  lastError: null,
 };
 
 /* The browser's API, whichever it is. */
@@ -77,8 +87,15 @@ const browserApi = (function () {
   return null;
 })();
 
-/* The storage of the browser: Chromium and Safari both have it, under
- * two names. */
+/* Two stores.  What has to outlive the browser (the broker, the secret,
+ * whether the user stopped the tunnel) goes in local storage; what only
+ * matters while the browser runs (the sequence number, a pending code)
+ * goes in session storage where there is one. */
+const durable = (function () {
+  const api = browserApi;
+  return api && api.storage && api.storage.local ? api.storage.local : null;
+})();
+
 const store = (function () {
   const api = browserApi;
   if (!api || !api.storage) {
@@ -87,23 +104,30 @@ const store = (function () {
   return api.storage.session || api.storage.local;
 })();
 
-/* Read the last sequence number we saw, so that a reconnect can ask for
- * the frames it missed. */
-async function loadSequence() {
-  if (!store) {
-    return 0;
+async function read(where, key, fallback) {
+  if (!where) {
+    return fallback;
   }
-  const held = await store.get("conduit.sequence");
-  return held && held["conduit.sequence"] ? held["conduit.sequence"] : 0;
+  const held = await where.get(key);
+  return held && held[key] !== undefined && held[key] !== null ? held[key] : fallback;
+}
+
+async function write(where, values) {
+  if (where) {
+    await where.set(values);
+  }
+}
+
+async function forget(where, keys) {
+  if (where) {
+    await where.remove(keys);
+  }
 }
 
 /* Keep the last sequence number we saw. */
 async function saveSequence(sequence) {
   state.sequence = sequence;
-  if (!store) {
-    return;
-  }
-  await store.set({ "conduit.sequence": sequence });
+  await write(store, { "conduit.sequence": sequence });
 }
 
 /* The Safari native host, when there is one. */
@@ -151,6 +175,7 @@ function send(frame) {
  * The payload carries the public key of this end and the prefix of its
  * nonces: the other end needs both to open what this end seals. */
 function hello() {
+  const resume = state.sequence;
   return {
     t: "hello",
     s: "dev.conduit.hello/v1",
@@ -159,7 +184,7 @@ function hello() {
     p: JSON.stringify({
       role: "extension",
       surface: CONFIG.surface,
-      resume: state.sequence,
+      resume,
       crypto: {
         scheme: "p256-aes256gcm/v1",
         public: toBase64Url(state.keys.publicBytes),
@@ -170,13 +195,14 @@ function hello() {
 }
 
 /* Publish an event on the channel, sealed under the key of the
- * tunnel. */
+ * tunnel.  The nonce is this end's prefix + the frame's seq: the
+ * client opens it with the prefix this end sent in its hello. */
 async function publish(schema, payload) {
   if (!state.tunnel) {
     return false;
   }
   const seq = nextSequence();
-  const sealed = await seal(state.tunnel.toExtension, state.peer.prefix, seq, JSON.stringify(payload));
+  const sealed = await seal(state.tunnel.toExtension, state.prefix, seq, JSON.stringify(payload));
   return send({
     t: "publish",
     s: schema,
@@ -186,7 +212,21 @@ async function publish(schema, payload) {
   });
 }
 
-/* Take the hello of the other end and agree the keys of the tunnel. */
+/* Publish the tab in front of the user, if a client is there to open
+ * it. */
+async function publishActiveTab() {
+  if (!state.tunnel) {
+    return false;
+  }
+  const tab = await readTab();
+  if (!tab) {
+    return false;
+  }
+  return publish(SCHEMA, tab);
+}
+
+/* Take the hello of the other end and agree the keys of the tunnel.
+ * A new client means a new hello => new keys. */
 async function meet(payload) {
   const hello = JSON.parse(payload);
   const crypto = hello.crypto || {};
@@ -204,17 +244,6 @@ async function meet(payload) {
   return true;
 }
 
-/* Base64url without padding, back to bytes. */
-function fromBase64Url(text) {
-  const padded = text.replace(/-/g, "+").replace(/_/g, "/");
-  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-}
-
 /* Keep the connection alive, and tell the broker we are here. */
 function startPinging() {
   stopPinging();
@@ -227,6 +256,67 @@ function stopPinging() {
   if (state.pingTimer !== null) {
     clearInterval(state.pingTimer);
     state.pingTimer = null;
+  }
+}
+
+/* One frame from the broker.  Frames are taken one at a time, in
+ * order: the hello of a client has to be agreed before the subscribe
+ * that follows it can be answered. */
+async function onFrame(frame) {
+  if (typeof frame.seq === "number" && frame.seq > state.sequence) {
+    await saveSequence(frame.seq);
+  }
+  switch (frame.t) {
+    case "welcome":
+      state.welcomed = true;
+      state.lastError = null;
+      return;
+    case "hello":
+      if (frame.p) {
+        await meet(frame.p);
+      }
+      return;
+    case "subscribe":
+      /* A client subscribed: give it the tab in front of the user now,
+       * rather than at the next change. */
+      await publishActiveTab();
+      return;
+    case "ping":
+      send({ t: "pong", s: "dev.conduit.pong/v1", c: CONFIG.channel, seq: nextSequence() });
+      return;
+    case "error": {
+      let error = {};
+      try {
+        error = JSON.parse(frame.p || "{}");
+      } catch (problem) {
+        error = {};
+      }
+      state.lastError = error.code || "error";
+      if (error.code === "unauthorized") {
+        /* The broker doesn't know the secret (it restarted, or the user
+         * took it away) => it's no good; pair again. */
+        await forgetTheSecret();
+        stop();
+        await start();
+      }
+      return;
+    }
+    case "publish": {
+      if (!frame.p || !state.tunnel) {
+        return;
+      }
+      let opened;
+      try {
+        opened = await openPayload(state.tunnel.toClient, state.peer.prefix, frame.seq, fromBase64Url(frame.p));
+      } catch (problem) {
+        return;
+      }
+      const payload = JSON.parse(new TextDecoder().decode(opened));
+      await onEvent(frame.s, payload);
+      return;
+    }
+    default:
+      return;
   }
 }
 
@@ -263,10 +353,11 @@ function connect() {
     return;
   }
 
-  const socket = new WebSocket(
-    CONFIG.broker + "?role=extension&surface=" + encodeURIComponent(CONFIG.surface),
-  );
+  const socket = new WebSocket(tunnelUrl(CONFIG.broker, CONFIG.surface, CONFIG.secret));
   state.socket = socket;
+  state.welcomed = false;
+  state.tunnel = null;
+  state.peer = null;
 
   socket.onopen = () => {
     state.backoff = CONFIG.backoffMinMs;
@@ -274,37 +365,25 @@ function connect() {
     startPinging();
   };
 
-  socket.onmessage = async (event) => {
+  socket.onmessage = (event) => {
     let frame;
     try {
       frame = JSON.parse(event.data);
     } catch (error) {
       return;
     }
-    if (typeof frame.seq === "number" && frame.seq > state.sequence) {
-      saveSequence(frame.seq);
-    }
-    if (frame.t === "hello" && frame.p) {
-      await meet(frame.p);
-      return;
-    }
-    if (frame.t === "ping") {
-      send({ t: "pong", s: "dev.conduit.pong/v1", c: CONFIG.channel, seq: nextSequence() });
-      return;
-    }
-    if (frame.t === "publish" && frame.p && state.tunnel) {
-      const opened = await openPayload(state.tunnel.toClient, state.peer.prefix, frame.seq, fromBase64Url(frame.p));
-      if (!opened) {
-        return;
-      }
-      const payload = JSON.parse(new TextDecoder().decode(opened));
-      await onEvent(frame.s, payload);
-    }
+    state.inbox = state.inbox.then(() => onFrame(frame)).catch(() => {});
   };
 
   socket.onclose = () => {
+    if (state.socket !== socket) {
+      return;
+    }
     stopPinging();
     state.socket = null;
+    state.welcomed = false;
+    state.tunnel = null;
+    state.peer = null;
     scheduleReconnect();
   };
 
@@ -323,11 +402,12 @@ function scheduleReconnect() {
   const jittered = wait / 2 + Math.random() * (wait / 2);
   state.reconnectTimer = setTimeout(() => {
     state.reconnectTimer = null;
+    state.running = false;
     connect();
   }, jittered);
 }
 
-/* Stop the tunnel. */
+/* Stop the tunnel, and any pairing in flight. */
 function stop() {
   state.running = false;
   stopPinging();
@@ -335,9 +415,17 @@ function stop() {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
   }
-  if (state.socket) {
-    state.socket.close();
-    state.socket = null;
+  if (state.approvalTimer !== null) {
+    clearInterval(state.approvalTimer);
+    state.approvalTimer = null;
+  }
+  const socket = state.socket;
+  state.socket = null;
+  state.welcomed = false;
+  state.tunnel = null;
+  state.peer = null;
+  if (socket) {
+    socket.close();
   }
 }
 
@@ -348,61 +436,84 @@ async function onEvent(schema, payload) {
   }
 }
 
+/* What the popup sees. */
+function status() {
+  return {
+    ok: true,
+    broker: CONFIG.broker,
+    sequence: state.sequence,
+    paired: !!CONFIG.secret,
+    pairing: !!state.pendingCode,
+    running: state.running || state.approvalTimer !== null,
+    connected: !!state.socket && state.socket.readyState === WebSocket.OPEN && state.welcomed,
+    agreed: !!state.tunnel,
+    error: state.lastError,
+  };
+}
+
 /* The message that arrives from the page or from the native side. */
 async function onMessage(message) {
   if (!message || !message.action) {
     return;
   }
   switch (message.action) {
-    case "publish": {
+    case "publish":
       /* The surface: the tab in front of the user. */
-      const tab = await readTab();
-      if (tab) {
-        await publish(SCHEMA, tab);
-      }
+      await publishActiveTab();
       break;
-    }
     case "status":
-      return {
-        ok: true,
-        sequence: state.sequence,
-        connected: !!state.socket,
-        agreed: !!state.tunnel,
-      };
+      await state.starting;
+      return status();
     case "toggle":
-      if (state.socket) {
+      if (state.running || state.approvalTimer !== null) {
+        await write(durable, { "conduit.stopped": true });
         stop();
       } else {
+        await write(durable, { "conduit.stopped": false });
         await start();
       }
-      break;
+      return status();
     case "stop":
+      await write(durable, { "conduit.stopped": true });
       stop();
-      break;
+      return status();
+    case "configure": {
+      const broker = parseBroker(message.broker);
+      if (!broker) {
+        return { ok: false, error: "not a ws:// or wss:// address" };
+      }
+      if (broker !== CONFIG.broker) {
+        /* A secret belongs to the broker that gave it out. */
+        stop();
+        await write(durable, { "conduit.broker": broker, "conduit.stopped": false });
+        await forgetTheSecret();
+        CONFIG.broker = broker;
+        await start();
+      }
+      return status();
+    }
     default:
       break;
   }
   return { ok: true };
 }
 
-/* The secret, if the user has approved one. */
-async function loadSecret() {
-  if (!store) {
-    return "";
-  }
-  const held = await store.get("conduit.secret");
-  return held && held["conduit.secret"] ? held["conduit.secret"] : "";
+/* Answer through sendResponse and return `true`: every browser takes
+ * that, while a returned promise is dropped by the Chromium versions
+ * this extension supports. */
+function listen(message, sender, sendResponse) {
+  onMessage(message).then(
+    (reply) => sendResponse(reply),
+    (error) => sendResponse({ ok: false, error: String(error) }),
+  );
+  return true;
 }
 
-/* Keep the secret.
- *
- * The secret is the user's decision: it comes from the device flow,
- * and it is not the extension's to keep if the user takes it away. */
-async function saveSecret(secret) {
-  if (!store) {
-    return;
-  }
-  await store.set({ "conduit.secret": secret });
+async function forgetTheSecret() {
+  CONFIG.secret = "";
+  state.pendingCode = null;
+  await forget(durable, ["conduit.secret"]);
+  await forget(store, ["conduit.pending"]);
 }
 
 /* Ask the broker for a code, and open the page where the user
@@ -412,10 +523,7 @@ async function saveSecret(secret) {
  * the user says yes first, in the broker's own page. */
 async function askForApproval() {
   const api = browserApi;
-  if (!api || !api.runtime || !api.runtime.sendMessage) {
-    return;
-  }
-  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/code", {
+  const answer = await fetch(endpoint(CONFIG.broker, "/v1/device/code"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -424,14 +532,17 @@ async function askForApproval() {
     }),
   });
   if (!answer.ok) {
-    return;
+    throw new Error(`the broker said ${answer.status} to the code`);
   }
   const code = await answer.json();
-  const page = CONFIG.broker.replace(/^ws/, "http") + code.url;
-  if (api.tabs && api.tabs.create) {
-    await api.tabs.create({ url: page });
-  }
   state.pendingCode = code.code;
+  state.pendingExpires = Date.now() + code.expires_in * 1000;
+  await write(store, {
+    "conduit.pending": { code: code.code, expires: state.pendingExpires, broker: CONFIG.broker },
+  });
+  if (api && api.tabs && api.tabs.create) {
+    await api.tabs.create({ url: endpoint(CONFIG.broker, code.url) });
+  }
 }
 
 /* Ask the broker whether the user has approved the code. */
@@ -439,7 +550,7 @@ async function pollForTheSecret() {
   if (!state.pendingCode) {
     return false;
   }
-  const answer = await fetch(CONFIG.broker.replace(/^ws/, "http") + "/v1/device/secret", {
+  const answer = await fetch(endpoint(CONFIG.broker, "/v1/device/secret"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ code: state.pendingCode, instance: CONFIG.instance }),
@@ -448,49 +559,119 @@ async function pollForTheSecret() {
     return false;
   }
   const secret = await answer.text();
-  await saveSecret(secret);
-  state.pendingCode = null;
   CONFIG.secret = secret;
+  state.pendingCode = null;
+  await write(durable, { "conduit.secret": secret });
+  await forget(store, ["conduit.pending"]);
   return true;
 }
 
-/* The start of the tunnel. */
-async function start() {
-  state.sequence = await loadSequence();
+/* Wait for the user to approve the code, then open the tunnel. */
+function waitForApproval() {
+  if (state.approvalTimer !== null) {
+    clearInterval(state.approvalTimer);
+  }
+  let asking = false;
+  state.approvalTimer = setInterval(async () => {
+    if (asking) {
+      return;
+    }
+    asking = true;
+    try {
+      if (Date.now() > state.pendingExpires) {
+        /* The code died before the user approved it: ask for another. */
+        clearInterval(state.approvalTimer);
+        state.approvalTimer = null;
+        await forget(store, ["conduit.pending"]);
+        state.pendingCode = null;
+        await start();
+        return;
+      }
+      if (await pollForTheSecret()) {
+        clearInterval(state.approvalTimer);
+        state.approvalTimer = null;
+        connect();
+      }
+    } catch (error) {
+      state.lastError = String(error && error.message ? error.message : error);
+    } finally {
+      asking = false;
+    }
+  }, CONFIG.approvalPollMs);
+}
+
+/* The start of the tunnel.  One start at a time: the worker starts on
+ * install and on its own load, and two starts would ask for two codes
+ * and open two approval tabs. */
+function start() {
+  if (!state.starting) {
+    state.starting = begin().finally(() => {
+      state.starting = null;
+    });
+  }
+  return state.starting;
+}
+
+async function begin() {
+  CONFIG.broker = parseBroker(await read(durable, "conduit.broker", DEFAULT_BROKER)) || DEFAULT_BROKER;
+  state.sequence = await read(store, "conduit.sequence", 0);
   if (!state.keys) {
     const pair = await generateKeyPair();
     state.keys = pair;
     state.prefix = new Uint8Array(4);
     crypto.getRandomValues(state.prefix);
   }
-  const secret = await loadSecret();
+  if (await read(durable, "conduit.stopped", false)) {
+    return;
+  }
+  const secret = await read(durable, "conduit.secret", "");
   if (secret) {
     CONFIG.secret = secret;
     connect();
     return;
   }
-  // There is no secret yet: ask for one, and wait for the user.
-  await askForApproval();
   if (state.approvalTimer !== null) {
-    clearInterval(state.approvalTimer);
+    return;
   }
-  state.approvalTimer = setInterval(async () => {
-    if (await pollForTheSecret()) {
-      clearInterval(state.approvalTimer);
-      state.approvalTimer = null;
-      connect();
+  // There is no secret yet: ask for one, and wait for the user.  A code
+  // asked for before the worker was unloaded is still good.
+  const pending = await read(store, "conduit.pending", null);
+  try {
+    if (pending && pending.broker === CONFIG.broker && pending.expires > Date.now()) {
+      state.pendingCode = pending.code;
+      state.pendingExpires = pending.expires;
+    } else {
+      await askForApproval();
     }
-  }, 5000);
+  } catch (error) {
+    state.lastError = String(error && error.message ? error.message : error);
+    return;
+  }
+  waitForApproval();
 }
 
-/* Wire the messages, in whichever browser this is. */
+/* Wire the messages and the tabs, in whichever browser this is.  A
+ * service worker has to add its listeners at the top level, on every
+ * load. */
 if (browserApi && browserApi.runtime && browserApi.runtime.onMessage) {
-  browserApi.runtime.onMessage.addListener(onMessage);
+  browserApi.runtime.onMessage.addListener(listen);
   if (browserApi.runtime.onInstalled) {
-    browserApi.runtime.onInstalled.addListener(start);
+    browserApi.runtime.onInstalled.addListener(() => start());
   }
   if (browserApi.runtime.onStartup) {
-    browserApi.runtime.onStartup.addListener(start);
+    browserApi.runtime.onStartup.addListener(() => start());
+  }
+}
+if (browserApi && browserApi.tabs) {
+  if (browserApi.tabs.onActivated) {
+    browserApi.tabs.onActivated.addListener(() => publishActiveTab());
+  }
+  if (browserApi.tabs.onUpdated) {
+    browserApi.tabs.onUpdated.addListener((tabId, change, tab) => {
+      if (tab && tab.active && (change.status === "complete" || change.title !== undefined)) {
+        publishActiveTab();
+      }
+    });
   }
 }
 
