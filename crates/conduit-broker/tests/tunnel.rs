@@ -288,3 +288,75 @@ async fn an_extension_with_the_wrong_secret_is_refused() {
         "the wrong secret is refused: {refusal}"
     );
 }
+
+#[tokio::test]
+async fn frames_over_200_per_second_are_dropped_and_the_socket_stays_open() {
+    let address = broker().await;
+
+    let (mut extension, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=extension&surface=dev.conduit.mail.compose%2Fv1&secret=secret"
+    ))
+    .await
+    .expect("the extension connects");
+    extension
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    read_until(&mut extension, "welcome").await;
+
+    let (mut client, _) = tokio_tungstenite::connect_async(format!(
+        "{address}/v1/tunnel?role=client&surface=dev.conduit.mail.compose%2Fv1&token=token"
+    ))
+    .await
+    .expect("the client connects");
+    client
+        .send(Message::Text(hello()))
+        .await
+        .expect("the hello goes");
+    read_until(&mut client, "welcome").await;
+
+    let publish = |seq: u64| {
+        serde_json::to_string(&Frame {
+            kind: FrameType::Publish,
+            schema: SchemaId::new("dev.conduit.mail.message", 1),
+            channel: "compose".to_string(),
+            call: None,
+            seq,
+            payload: Some("x".to_string()),
+        })
+        .expect("a frame is JSON")
+    };
+    for seq in 1..=300 {
+        extension
+            .send(Message::Text(publish(seq)))
+            .await
+            .expect("the frame goes");
+    }
+
+    let mut received = 0;
+    while let Ok(Some(Ok(message))) =
+        tokio::time::timeout(std::time::Duration::from_millis(500), client.next()).await
+    {
+        if let Message::Text(text) = message {
+            if text.contains("\"publish\"") {
+                received += 1;
+            }
+        }
+    }
+    assert!(
+        (180..=240).contains(&received),
+        "about 200 of 300 frames cross, got {received}"
+    );
+
+    // The socket is still open: after a second the bucket is full again.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    extension
+        .send(Message::Text(publish(301)))
+        .await
+        .expect("the socket is open");
+    let text = read_until(&mut client, "\"publish\"").await;
+    assert!(
+        text.contains("301"),
+        "a frame crosses after the refill: {text}"
+    );
+}

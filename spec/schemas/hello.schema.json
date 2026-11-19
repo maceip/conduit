@@ -12,6 +12,16 @@
     "resume": { "type": "integer", "minimum": 0, "description": "The last sequence number the end has seen." },
     "scopes": { "type": "array", "items": { "type": "string" } },
     "schemes": { "type": "array", "items": { "type": "string" } },
-    "crypto": { "type": "string", "description": "The scheme the two ends agreed for the payload." }
+    "crypto": {
+      "type": "object",
+      "description": "The end's half of the key agreement. public and prefix are base64url without padding.",
+      "additionalProperties": false,
+      "required": ["scheme", "public", "prefix"],
+      "properties": {
+        "scheme": { "type": "string" },
+        "public": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "The uncompressed P-256 point, 65 bytes." },
+        "prefix": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "The 4-byte nonce prefix." }
+      }
+    }
   }
 }

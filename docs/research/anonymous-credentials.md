@@ -18,7 +18,7 @@ from `docs/protocol.md` + the code:
 * client auth => a bearer `token` in the websocket query string (`crates/conduit-client/src/lib.rs`). the broker maps token -> surfaces (`registry.rs`).
 * control frames (`hello`, `subscribe`, ...) are broker-readable; the broker parses `subscribe` scopes out of the frame (`relay.rs`). app payloads in `p` are sealed `p256-aes256gcm/v1`; the broker never opens them.
 * replay ring = last 256 frames per tunnel end, keyed by the sender's `seq`.
-* 200 frames/s per tunnel is in the spec. in the code i found only the `window` field in `spec/schemas/subscribe.schema.json`; no limiter in `crates/conduit-broker/src/` => the rate limit is spec-only right now.
+* 200 frames/s per tunnel is in the spec. in the code i found only the `window` field in `spec/schemas/subscribe.schema.json`; no limiter in `crates/conduit-broker/src/` => the rate limit was spec-only. update: a token bucket now enforces it (`RateLimit` in `relay.rs`); `window` is still ignored.
 * the extension's ECDH key pair lives as long as the worker (`state.keys` in `clients/shared/background.js`) => reconnects within 1 worker life show the broker the same public key.
 
 so the broker can already link everything: grant secret, token, socket, IP, ECDH key, timing. any anonymous credential has to fix all of those or it fixes nothing.
@@ -193,7 +193,7 @@ single run each, no warmup control => order-of-magnitude numbers. they back §3:
 * audit: "the user has to be able to ... audit what crossed it" (`docs/architecture.md`). an anonymous broker can't attribute traffic to a grant => the audit has to move to the ends.
 * revocation gets slower (epoch-bound) for a privacy gain that's 0 at set size 1.
 
-cheaper wins that don't need any of this, noted for later: tokens + secrets out of the query string (proxies + access logs record urls); a fresh ECDH key per connection; implement the 200 frames/s limit that the spec already promises.
+cheaper wins that don't need any of this, noted for later: tokens + secrets out of the query string (proxies + access logs record urls); a fresh ECDH key per connection; the 200 frames/s limit the spec promised (now done).
 
 ---
 

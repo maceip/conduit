@@ -147,7 +147,8 @@ as an opaque string it never opens.
 
 * ECDH over P-256 for key agreement, at hello, between the two ends; the
   broker isn't a party to it. hello carries each end's public key and its
-  nonce prefix.
+  nonce prefix in `crypto.public` / `crypto.prefix`, base64url without
+  padding; hex is refused.
 * HKDF-SHA256 over the shared secret, salt = the string of zeros RFC 5869
   names, => 2 directional keys: one for what the extension sends, one for
   what the client sends, so a frame can't be replayed backwards.
@@ -176,7 +177,9 @@ that arrives over the network.
 ## size and rate
 
 * a frame is at most 64 KiB sealed; the broker refuses more.
-* the broker enforces 200 frames/s per tunnel and drops the excess instead
-  of closing.
+* the broker enforces 200 frames/s per tunnel, both ends together, with a
+  token bucket (`RateLimit` in `crates/conduit-broker/src/relay.rs`); it
+  drops the excess instead of closing and counts what it dropped.
 * a client that wants more asks for a larger window in the `subscribe`
-  frame; the broker grants what the extension's rate allows.
+  frame; the broker grants what the extension's rate allows. not built yet
+  => `window` is ignored and every tunnel gets 200/s.

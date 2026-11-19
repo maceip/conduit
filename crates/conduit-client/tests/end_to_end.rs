@@ -50,8 +50,8 @@ fn hello(role: &str, keys: &KeyPair, prefix: [u8; 4]) -> String {
         "surface": surface().to_string(),
         "crypto": {
             "scheme": sealed::SCHEME,
-            "public": sealed::public_key_hex(&keys.public_bytes()),
-            "prefix": sealed::public_key_hex(&prefix),
+            "public": sealed::to_wire(&keys.public_bytes()),
+            "prefix": sealed::to_wire(&prefix),
         },
     })
     .to_string();
@@ -71,12 +71,11 @@ fn public_of(frame: &str) -> [u8; 65] {
     let value: serde_json::Value = serde_json::from_str(frame).expect("a frame is JSON");
     let public = value["p"].as_str().expect("a payload");
     let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
-    let hex = inner["crypto"]["public"].as_str().expect("a public key");
-    let mut bytes = [0u8; 65];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("hex");
-    }
-    bytes
+    let text = inner["crypto"]["public"].as_str().expect("a public key");
+    sealed::from_wire(text)
+        .expect("base64url")
+        .try_into()
+        .expect("65 bytes")
 }
 
 /// The nonce prefix the peer sent, out of a hello frame.
@@ -84,12 +83,11 @@ fn prefix_of(frame: &str) -> [u8; 4] {
     let value: serde_json::Value = serde_json::from_str(frame).expect("a frame is JSON");
     let public = value["p"].as_str().expect("a payload");
     let inner: serde_json::Value = serde_json::from_str(public).expect("the payload is JSON");
-    let hex = inner["crypto"]["prefix"].as_str().expect("a prefix");
-    let mut bytes = [0u8; 4];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16).expect("hex");
-    }
-    bytes
+    let text = inner["crypto"]["prefix"].as_str().expect("a prefix");
+    sealed::from_wire(text)
+        .expect("base64url")
+        .try_into()
+        .expect("4 bytes")
 }
 
 #[tokio::test]

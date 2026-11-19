@@ -129,3 +129,22 @@ fn the_vector_is_what_it_is() {
     println!("TWO_PUBLIC={}", two.public_hex());
     println!("SEALED={}", sealed.to_base64());
 }
+
+#[test]
+fn hello_fields_are_base64url_and_hex_is_refused() {
+    let pair = KeyPair::generate();
+    let public = pair.public_bytes();
+    let text = conduit_protocol::sealed::to_wire(&public);
+    assert!(!text.contains('=') && !text.contains('+') && !text.contains('/'));
+    assert_eq!(
+        conduit_protocol::sealed::from_wire(&text).as_deref(),
+        Some(&public[..])
+    );
+    // The old hex form must not pass for a 65-byte key.
+    let hex = public_key_hex(&public);
+    assert_ne!(
+        conduit_protocol::sealed::from_wire(&hex).map(|b| b.len()),
+        Some(65)
+    );
+    assert_eq!(conduit_protocol::sealed::from_wire("AAAA="), None);
+}

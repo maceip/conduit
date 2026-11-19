@@ -13,8 +13,48 @@
 use crate::{failure_frame, registry::Registry, scopes_the_grant_allows};
 use axum::extract::ws::{Message, WebSocket};
 use conduit_protocol::{Frame, FrameType, Grant, ProtocolError, Replay, Scope};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::mpsc;
+
+/// Frames per second a tunnel may carry, both ends together
+/// (docs/protocol.md, size and rate).
+pub const FRAMES_PER_SECOND: u32 = 200;
+
+/// A token bucket: holds up to `rate` frames and refills at `rate` per
+/// second. A frame over the limit is dropped, not answered, and the
+/// socket stays open.
+#[derive(Debug)]
+pub struct RateLimit {
+    rate: f64,
+    tokens: f64,
+    last: Instant,
+}
+
+impl RateLimit {
+    /// A full bucket of `rate` frames per second, starting at `now`.
+    pub fn new(rate: u32, now: Instant) -> RateLimit {
+        RateLimit {
+            rate: f64::from(rate),
+            tokens: f64::from(rate),
+            last: now,
+        }
+    }
+
+    /// Whether one more frame may pass at `now`.
+    pub fn admit(&mut self, now: Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
+        self.last = now;
+        self.tokens = (self.tokens + elapsed * self.rate).min(self.rate);
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 /// A tunnel: one extension, and the clients that are subscribed to it.
 ///
@@ -40,6 +80,10 @@ pub struct Tunnel {
     from_extension: Arc<tokio::sync::Mutex<Replay>>,
     /// The frames the client sent, for resume.
     from_client: Arc<tokio::sync::Mutex<Replay>>,
+    /// The rate limit, shared by both ends of the tunnel.
+    limit: Arc<std::sync::Mutex<RateLimit>>,
+    /// How many frames the rate limit dropped.
+    dropped: Arc<AtomicU64>,
 }
 
 impl Tunnel {
@@ -56,7 +100,30 @@ impl Tunnel {
             for_client: Arc::new(tokio::sync::Mutex::new(Some(for_client))),
             from_extension: Arc::new(tokio::sync::Mutex::new(Replay::new())),
             from_client: Arc::new(tokio::sync::Mutex::new(Replay::new())),
+            limit: Arc::new(std::sync::Mutex::new(RateLimit::new(
+                FRAMES_PER_SECOND,
+                Instant::now(),
+            ))),
+            dropped: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// Whether one more frame may cross now; counts the ones that may not.
+    pub fn admit(&self) -> bool {
+        let admitted = self
+            .limit
+            .lock()
+            .map(|mut limit| limit.admit(Instant::now()))
+            .unwrap_or(false);
+        if !admitted {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
+        admitted
+    }
+
+    /// How many frames the rate limit has dropped so far.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     /// Take the receiver of the extension's end, once.
@@ -125,6 +192,9 @@ pub async fn serve_extension(
                 let Some(Ok(message)) = message else { break };
                 match message {
                     Message::Text(text) => {
+                        if !tunnel.admit() {
+                            continue;
+                        }
                         let frame: Frame = match serde_json::from_str(&text) {
                             Ok(frame) => frame,
                             Err(_) => {
@@ -177,6 +247,9 @@ pub async fn serve_client(
                 let Some(Ok(message)) = message else { break };
                 match message {
                     Message::Text(text) => {
+                        if !tunnel.admit() {
+                            continue;
+                        }
                         let frame: Frame = match serde_json::from_str(&text) {
                             Ok(frame) => frame,
                             Err(_) => continue,
@@ -265,4 +338,34 @@ fn ping_reply() -> String {
         payload: None,
     })
     .unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn the_bucket_lets_200_through_then_drops() {
+        let start = Instant::now();
+        let mut limit = RateLimit::new(FRAMES_PER_SECOND, start);
+        let passed = (0..300).filter(|_| limit.admit(start)).count();
+        assert_eq!(passed, 200);
+    }
+
+    #[test]
+    fn the_bucket_refills_at_the_rate() {
+        let start = Instant::now();
+        let mut limit = RateLimit::new(FRAMES_PER_SECOND, start);
+        for _ in 0..200 {
+            assert!(limit.admit(start));
+        }
+        assert!(!limit.admit(start));
+        let later = start + Duration::from_millis(100);
+        let passed = (0..100).filter(|_| limit.admit(later)).count();
+        assert_eq!(passed, 20, "100 ms at 200/s refills 20 frames");
+        let much_later = later + Duration::from_secs(10);
+        let passed = (0..500).filter(|_| limit.admit(much_later)).count();
+        assert_eq!(passed, 200, "the bucket never holds more than 1s of frames");
+    }
 }
