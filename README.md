@@ -1,6 +1,6 @@
 # conduit
 
-![Conduit](docs/social-preview.jpg)
+![conduit](docs/social-preview-rounded.png)
 
 most apps give third parties no way in. apple ships 400+ app extensions and most users never see the list.
 

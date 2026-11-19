@@ -48,7 +48,7 @@ jobs:
             pandoc "$file" --standalone --include-in-header=docs/head.html --metadata pagetitle=conduit -o "$out"
           done
           cp -r spec _site/spec
-          cp docs/social-preview.jpg _site/docs/
+          cp docs/social-preview-rounded.png _site/docs/
           # The links in the documents point at the markdown; the site
           # serves the HTML.
           find _site -name '*.html' -print0 | xargs -0 sed -i -e 's|\.md)|.html)|g'
