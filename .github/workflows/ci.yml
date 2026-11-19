@@ -35,7 +35,7 @@ jobs:
 
       - name: The extension clients parse
         run: |
-          for file in clients/shared/background.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js; do
+          for file in clients/shared/background.js clients/shared/config.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js scripts/build-extension.mjs scripts/e2e/run.mjs; do
             node --check "$file"
             echo "ok $file"
           done
@@ -77,6 +77,34 @@ jobs:
 
       - name: The sealing agrees with the Rust, in a real browser
         run: node scripts/browser-test.mjs
+
+  e2e:
+    name: end to end (broker + chromium extension + rust client)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+
+      - name: Set up node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: The whole system, nothing mocked
+        env:
+          E2E_INSTALL_DEPS: "1"
+        run: scripts/e2e/run.sh
+
+      - name: Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: target/e2e/
 
   coverage:
     name: coverage

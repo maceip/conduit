@@ -110,12 +110,14 @@ async fn next(client: &mut Client, wait: Duration) -> Result<Next, ClientError> 
 async fn flood(client: &mut Client, address: &Address, count: usize) -> Result<bool, ClientError> {
     let schema = SchemaId::new("dev.conduit.browser.tab", 1);
     let channel = address.channel();
+    let began = std::time::Instant::now();
     for index in 0..count {
         let payload = json!({ "flood": index }).to_string();
         client
             .publish(&schema, &channel, payload.as_bytes())
             .await?;
     }
+    let elapsed_ms = began.elapsed().as_millis();
     let mut refused = 0usize;
     let mut codes = std::collections::BTreeMap::<String, usize>::new();
     loop {
@@ -133,7 +135,9 @@ async fn flood(client: &mut Client, address: &Address, count: usize) -> Result<b
             }
         }
     }
-    line(json!({ "type": "flood", "sent": count, "refused": refused, "codes": codes }));
+    line(
+        json!({ "type": "flood", "sent": count, "elapsed_ms": elapsed_ms, "refused": refused, "codes": codes }),
+    );
 
     // a second later the bucket is full again, and the socket is open.
     tokio::time::sleep(Duration::from_millis(1100)).await;
