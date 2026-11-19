@@ -119,7 +119,7 @@ const nativeHost = (function () {
             port.disconnect();
             resolve(reply);
           });
-          port.onDisconnect.addListener(() => reject(new Error("the native host went away")));
+          port.onDisconnect.addListener(() => reject(new Error("native host disconnected")));
           port.postMessage(message);
         });
       },

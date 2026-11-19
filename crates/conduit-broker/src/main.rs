@@ -43,12 +43,12 @@ async fn main() {
         extension_secret: "bootstrap-secret".to_string(),
     };
 
-    let address: SocketAddr = "127.0.0.1:8787".parse().expect("the address is an address");
+    let address: SocketAddr = "127.0.0.1:8787".parse().expect("bad listen address");
     let listener = tokio::net::TcpListener::bind(address)
         .await
-        .expect("the port is free");
+        .expect("bind failed");
     println!("conduit-broker listening on ws://{address}/v1/tunnel");
     axum::serve(listener, router(state))
         .await
-        .expect("the server runs");
+        .expect("server exited");
 }

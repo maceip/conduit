@@ -10,7 +10,7 @@ async function refresh() {
     status.textContent = reply.connected ? "connected" : "not connected";
     toggle.textContent = reply.connected ? "stop" : "start";
   } else {
-    status.textContent = "the tunnel did not answer";
+    status.textContent = "no answer from the tunnel";
   }
 }
 

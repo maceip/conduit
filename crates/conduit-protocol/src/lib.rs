@@ -405,7 +405,7 @@ impl fmt::Display for Failure {
         match self {
             Failure::Malformed(detail) => write!(formatter, "malformed frame: {detail}"),
             Failure::UnknownType(name) => write!(formatter, "unknown frame type: {name}"),
-            Failure::TooLarge => write!(formatter, "frame is too large"),
+            Failure::TooLarge => write!(formatter, "frame too large"),
             Failure::ScopeDenied(scope) => write!(formatter, "scope not granted: {scope}"),
             Failure::UnknownSurface(id) => write!(formatter, "unknown surface: {id}"),
             Failure::Unauthorized => write!(formatter, "not authorized"),

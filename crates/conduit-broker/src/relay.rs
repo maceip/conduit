@@ -198,7 +198,7 @@ pub async fn serve_client(
                                     Err(missing) => {
                                         let error = ProtocolError {
                                             code: conduit_protocol::ErrorCode::ScopeDenied,
-                                            message: format!("{missing:?} is not granted"),
+                                            message: format!("not granted: {missing:?}"),
                                             reference: None,
                                             scope: missing.first().map(|scope| scope.to_string()),
                                         };

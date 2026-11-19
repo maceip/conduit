@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Conduit browser tests</title>
+    <title>conduit browser tests</title>
   </head>
   <body>
     <p id="state">running…</p>
@@ -46,36 +46,36 @@
         results.push({ name, ok: !!condition, detail: detail || "" });
       }
 
-      let step = "the first import";
+      let step = "import 1";
       try {
         const one = await keyPairFromSecret(hexBytes(ONE_SECRET), hexBytes(ONE_PUBLIC));
-        step = "the second import";
-        check("the public key of the first secret", hex(one.publicBytes) === ONE_PUBLIC, hex(one.publicBytes));
+        step = "import 2";
+        check("public key of secret 1", hex(one.publicBytes) === ONE_PUBLIC, hex(one.publicBytes));
 
         const two = await keyPairFromSecret(hexBytes(TWO_SECRET), hexBytes(TWO_PUBLIC));
-        check("the public key of the second secret", hex(two.publicBytes) === TWO_PUBLIC, hex(two.publicBytes));
+        check("public key of secret 2", hex(two.publicBytes) === TWO_PUBLIC, hex(two.publicBytes));
 
-        step = "the agreement";
+        step = "key agreement";
         const shared = await agree(one.privateKey, two.publicBytes);
-        step = "the sealing";
+        step = "seal";
         const sealed = await seal(shared.toExtension, PREFIX, 1, "conduit");
         const text = toBase64Url(sealed);
-        check("the sealed payload is the one the Rust seals", text === SEALED, text);
+        check("sealed payload matches the rust output", text === SEALED, text);
 
         const other = await agree(two.privateKey, one.publicBytes);
         check(
-          "the two ends agree on the key",
+          "both ends derive the same key",
           hex(shared.toExtension) === hex(other.toExtension),
           hex(shared.toExtension),
         );
         check(
-          "the two directions do not share a key",
+          "each direction gets its own key",
           hex(shared.toExtension) !== hex(shared.toClient),
           "",
         );
       } catch (error) {
         results.push({
-          name: "the checks ran",
+          name: "checks ran",
           ok: false,
           detail: `${step}: ${String(error && error.message)}`,
         });

@@ -106,9 +106,9 @@ pub enum AddressError {
 impl std::fmt::Display for AddressError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            AddressError::NoScheme => formatter.write_str("the address has no scheme"),
-            AddressError::NoAuthority => formatter.write_str("the address has no authority"),
-            AddressError::NoVersion => formatter.write_str("the address has no version"),
+            AddressError::NoScheme => formatter.write_str("address has no scheme"),
+            AddressError::NoAuthority => formatter.write_str("address has no authority"),
+            AddressError::NoVersion => formatter.write_str("address has no version"),
         }
     }
 }
@@ -448,18 +448,18 @@ impl std::fmt::Display for ClientError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ClientError::Connection(error) => {
-                write!(formatter, "the connection failed: {error}")
+                write!(formatter, "connection failed: {error}")
             }
-            ClientError::Refused(text) => write!(formatter, "the broker refused: {text}"),
-            ClientError::Encoding(error) => write!(formatter, "the frame did not encode: {error}"),
+            ClientError::Refused(text) => write!(formatter, "broker refused: {text}"),
+            ClientError::Encoding(error) => write!(formatter, "frame did not encode: {error}"),
             ClientError::WrongSurface { wanted, connected } => write!(
                 formatter,
-                "the address names the surface {wanted} and the connection is {connected}"
+                "address names surface {wanted}; connection is on {connected}"
             ),
-            ClientError::NoKeys => formatter.write_str("the extension's hello has not arrived yet"),
-            ClientError::Malformed => {
-                formatter.write_str("the frame was not what it should have been")
+            ClientError::NoKeys => {
+                formatter.write_str("no key yet => extension hello has not arrived")
             }
+            ClientError::Malformed => formatter.write_str("malformed frame"),
         }
     }
 }

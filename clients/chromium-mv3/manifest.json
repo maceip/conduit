@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Conduit",
   "version": "0.1.0",
-  "description": "A typed, scoped tunnel from this browser to a conduit client.",
+  "description": "typed, scoped tunnel from this browser to a conduit client",
   "minimum_chrome_version": "121",
   "background": {
     "scripts": ["background.js"],

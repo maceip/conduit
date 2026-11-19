@@ -141,7 +141,7 @@ async fn approve_a_code(
         ),
         None => (
             axum::http::StatusCode::NOT_FOUND,
-            String::from("no such code, or it has expired"),
+            String::from("no such code, or it expired"),
         ),
     }
 }
@@ -158,7 +158,7 @@ async fn the_secret(
         }
         None => (
             axum::http::StatusCode::FORBIDDEN,
-            String::from("the code has not been approved, or it has expired"),
+            String::from("code not approved yet, or expired"),
         ),
     }
 }
@@ -172,7 +172,7 @@ async fn the_approval_page(
     let device = state.devices.device(&code).await;
     let body = match device {
         Some(device) => format!(
-            "<h1>Approve this extension</h1><p><strong>{}</strong> asks for the scopes:</p><ul>{}</ul><form method=\"post\" action=\"/v1/device/approve-page\"><input type=\"hidden\" name=\"code\" value=\"{}\"><button type=\"submit\">Approve</button></form>",
+            "<h1>approve this extension</h1><p><strong>{}</strong> asks for these scopes:</p><ul>{}</ul><form method=\"post\" action=\"/v1/device/approve-page\"><input type=\"hidden\" name=\"code\" value=\"{}\"><button type=\"submit\">approve</button></form>",
             device.surface,
             device
                 .scopes
@@ -182,13 +182,13 @@ async fn the_approval_page(
                 .join(""),
             code
         ),
-        None => "<h1>No such code</h1><p>It has expired, or it was never here.</p>".to_string(),
+        None => "<h1>no such code</h1><p>expired, or never issued.</p>".to_string(),
     };
     (
         axum::http::StatusCode::OK,
         [("content-type", "text/html; charset=utf-8")],
         format!(
-            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>Approve</title></head><body>{body}</body></html>"
+            "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>approve</title></head><body>{body}</body></html>"
         ),
     )
 }
@@ -240,7 +240,7 @@ async fn handle(mut socket: WebSocket, state: AppState, params: Params) {
                         .send(Message::Text(
                             error_frame(
                                 ErrorCode::Unauthorized,
-                                "the secret is for another surface",
+                                "secret belongs to another surface",
                             )
                             .into(),
                         ))

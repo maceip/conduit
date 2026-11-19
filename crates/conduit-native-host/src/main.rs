@@ -44,12 +44,12 @@ async fn main() {
     // The native messaging port is named by the environment the browser
     // sets; it is the only way into this process.
     let Ok(port) = std::env::var("CONDUIT_NATIVE_PORT") else {
-        eprintln!("conduit-native-host: no native port in the environment");
+        eprintln!("conduit-native-host: no native port in env");
         std::process::exit(2);
     };
 
     let Ok(native) = UnixStream::connect(&port).await else {
-        eprintln!("conduit-native-host: the native port did not answer");
+        eprintln!("conduit-native-host: native port did not answer");
         std::process::exit(2);
     };
 
@@ -76,7 +76,7 @@ async fn carry(mut native: UnixStream, settings: &Settings) -> std::io::Result<(
     let Ok((socket, _)) = tokio_tungstenite::connect_async(url.as_str()).await else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::ConnectionRefused,
-            "the broker did not answer",
+            "broker did not answer",
         ));
     };
     let (mut writer, mut reader) = socket.split();
