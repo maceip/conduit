@@ -11,7 +11,7 @@ the loopback.
 | the main thread | `code.js` |
 | the iframe that holds the connection | `ui.html`, `ui.js` |
 | what a selection is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## What it publishes

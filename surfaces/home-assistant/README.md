@@ -9,7 +9,7 @@ publishes plain JSON to the near end, which does the sealing.
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the manifest Home Assistant loads | `manifest.json` |
 | the integration | `__init__.py` |
 | what an entity is | `publish.py` |

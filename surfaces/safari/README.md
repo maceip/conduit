@@ -10,7 +10,7 @@ talks to it over the browser's native messaging protocol.
 | the extension Safari loads | `../../clients/safari-mv3/` |
 | the native messaging host | `../../crates/conduit-near-end/` in its `--native` mode |
 | what a tab is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 The near end holds the socket, the keys and the sealing.  The extension

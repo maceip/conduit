@@ -8,7 +8,7 @@ publishes what the app knows to the near end, and it answers the tool
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the MCP server | `server.mjs` |
 | what a tool result looks like | `publish.js` |
 | the check | `check.mjs` |

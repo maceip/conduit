@@ -1,8 +1,0 @@
-{
-  "id": "dev.conduit.thunderbird.messages/v1",
-  "channel": "messages",
-  "schemas": ["dev.conduit.thunderbird.message/v1"],
-  "scopes": ["thunderbird.messages.read"],
-  "socket": "/tmp/conduit-thunderbird.sock",
-  "tcp": 18791
-}

@@ -10,7 +10,7 @@ open to the near end, which does the sealing.
 | the manifest VS Code loads | `package.json` |
 | the extension | `extension.js` |
 | what a tab is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## What it publishes

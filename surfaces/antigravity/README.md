@@ -14,7 +14,7 @@ exposes the state of the surface to the agent as an MCP tool.
 | the MCP servers of the plugin | `mcp_config.json` |
 | the skill | `skills/conduit-surface/SKILL.md` |
 | the logo | `assets/logo.svg` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## Installing it

@@ -1,7 +1,0 @@
-{
-  "id": "dev.conduit.mail.messages/v1",
-  "channel": "messages",
-  "schemas": ["dev.conduit.mail.message/v1"],
-  "scopes": ["mail.compose.read", "mail.messages.read"],
-  "socket": "/tmp/conduit-mail.sock"
-}

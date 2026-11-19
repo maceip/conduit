@@ -15,7 +15,7 @@ sealing.
 | the configuration of the bot | `bot.json` |
 | the bot | `bot.js` |
 | what a message is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## Discord has no manifest file

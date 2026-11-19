@@ -1,7 +1,0 @@
-{
-  "id": "dev.conduit.wordpress.blog/v1",
-  "channel": "wordpress",
-  "schemas": ["dev.conduit.wordpress.site/v1", "dev.conduit.wordpress.post/v1"],
-  "scopes": ["wordpress.site.read", "wordpress.posts.read"],
-  "socket": "/tmp/conduit-wordpress.sock"
-}

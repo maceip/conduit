@@ -14,7 +14,7 @@ Mail downloads.
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the manifest of the extension | `ConduitMail.appex/Info.plist` |
 | the principal class | `ConduitMail.appex/ConduitMailExtension.swift` |
 | the compose handler | `ConduitMail.appex/ConduitMailCompose.swift` |
@@ -107,7 +107,7 @@ To run it, on a Mac with Xcode:
   to compile it,
 * `pluginkit -a -v <the built appex>` and the Mail toggle above to make
   Mail load it,
-* a near end running with `surfaces/apple-mail/surface.json`, and
+* a near end running with `spec/surfaces.json`, and
 * a `check.mjs` in this directory that drives the *same* publishing code
   against a live broker and a live near end, the way
   `surfaces/vscode/check.mjs` does.  There is no such check here: it

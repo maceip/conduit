@@ -10,13 +10,13 @@ Shortcuts with **App Intents**.  The surface is two Swift types:
 The compiler reads that metadata out of the Swift and writes it into the
 app, so **there is no manifest file**: there is nothing to register and
 nothing to install.  The actions are in the app as soon as the app is
-built.  (The `surface.json` below is Conduit's own declaration of the
-surface — what the near end is told about it — and not a manifest of the
-app.)
+built.  (The declaration in `spec/surfaces.json` is Conduit's own
+declaration of the surface — what the near end is told about it — and
+not a manifest of the app.)
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the action and the phrases | `ConduitShortcuts.swift` |
 | the client of the near end | `NearEnd.swift` |
 
@@ -75,7 +75,7 @@ against the contract in `docs/surface-contract.md` and the Node client in
 To run it, on a Mac with Xcode:
 
 * build an app target that contains the two files,
-* run a near end with `surfaces/apple-shortcuts/surface.json`,
+* run a near end with `spec/surfaces.json`,
 * run the action from Shortcuts, and
 * write a `check.mjs` in this directory that drives the *same* publishing
   code against a live broker and a live near end, the way

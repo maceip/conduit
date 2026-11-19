@@ -9,7 +9,7 @@ publishes the note in front of the user to the near end, which seals it.
 | the manifest Obsidian reads | `manifest.json` |
 | the plugin | `main.js` |
 | what a note is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## What it publishes

@@ -1,8 +1,0 @@
-{
-  "id": "dev.conduit.figma.selection/v1",
-  "channel": "selection",
-  "schemas": ["dev.conduit.figma.selection/v1"],
-  "scopes": ["figma.selection.read"],
-  "socket": "/tmp/conduit-figma.sock",
-  "tcp": 18790
-}

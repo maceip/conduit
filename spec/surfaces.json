@@ -1,0 +1,192 @@
+{
+  "$comment": "The registry of surfaces: one declaration of every surface, and everything else reads it. The near end is told about a surface from here, the checks read it, and the pages of the site are written from it.",
+  "version": 1,
+  "surfaces": [
+    {
+      "name": "antigravity",
+      "id": "dev.conduit.antigravity.workspace/v1",
+      "channel": "antigravity",
+      "schemas": [
+        "dev.conduit.antigravity.state/v1"
+      ],
+      "scopes": [
+        "antigravity.workspace.read"
+      ],
+      "socket": "/tmp/conduit-antigravity.sock"
+    },
+    {
+      "name": "apple-mail",
+      "id": "dev.conduit.mail.messages/v1",
+      "channel": "messages",
+      "schemas": [
+        "dev.conduit.mail.message/v1"
+      ],
+      "scopes": [
+        "mail.compose.read",
+        "mail.messages.read"
+      ],
+      "socket": "/tmp/conduit-mail.sock"
+    },
+    {
+      "name": "apple-shortcuts",
+      "id": "dev.conduit.shortcuts.state/v1",
+      "channel": "shortcuts",
+      "schemas": [
+        "dev.conduit.shortcuts.state/v1"
+      ],
+      "scopes": [
+        "shortcuts.state.read"
+      ],
+      "socket": "/tmp/conduit-shortcuts.sock"
+    },
+    {
+      "name": "discord",
+      "id": "dev.conduit.discord.messages/v1",
+      "channel": "messages",
+      "schemas": [
+        "dev.conduit.discord.message/v1"
+      ],
+      "scopes": [
+        "discord.messages.read"
+      ],
+      "socket": "/tmp/conduit-discord.sock"
+    },
+    {
+      "name": "figma",
+      "id": "dev.conduit.figma.selection/v1",
+      "channel": "selection",
+      "schemas": [
+        "dev.conduit.figma.selection/v1"
+      ],
+      "scopes": [
+        "figma.selection.read"
+      ],
+      "socket": "/tmp/conduit-figma.sock",
+      "tcp": 18790
+    },
+    {
+      "name": "home-assistant",
+      "id": "dev.conduit.homeassistant.entities/v1",
+      "channel": "homeassistant",
+      "schemas": [
+        "dev.conduit.homeassistant.state/v1"
+      ],
+      "scopes": [
+        "homeassistant.state.read"
+      ],
+      "socket": "/tmp/conduit-home-assistant.sock"
+    },
+    {
+      "name": "mcp",
+      "id": "dev.conduit.mcp.state/v1",
+      "channel": "mcp",
+      "schemas": [
+        "dev.conduit.mcp.state/v1"
+      ],
+      "scopes": [
+        "mcp.state.read",
+        "mcp.state.write"
+      ],
+      "socket": "/tmp/conduit-mcp.sock"
+    },
+    {
+      "name": "neovim",
+      "id": "dev.conduit.neovim.buffer/v1",
+      "channel": "buffer",
+      "schemas": [
+        "dev.conduit.neovim.buffer/v1"
+      ],
+      "scopes": [
+        "neovim.buffer.read"
+      ],
+      "socket": "/tmp/conduit-neovim.sock"
+    },
+    {
+      "name": "obsidian",
+      "id": "dev.conduit.obsidian.notes/v1",
+      "channel": "notes",
+      "schemas": [
+        "dev.conduit.obsidian.note/v1"
+      ],
+      "scopes": [
+        "obsidian.notes.read"
+      ],
+      "socket": "/tmp/conduit-obsidian.sock"
+    },
+    {
+      "name": "safari",
+      "id": "dev.conduit.browser.tabs/v1",
+      "channel": "tabs",
+      "schemas": [
+        "dev.conduit.browser.tab/v1"
+      ],
+      "scopes": [
+        "browser.tabs.read"
+      ],
+      "socket": "/tmp/conduit-safari.sock"
+    },
+    {
+      "name": "slack",
+      "id": "dev.conduit.slack.messages/v1",
+      "channel": "messages",
+      "schemas": [
+        "dev.conduit.slack.message/v1"
+      ],
+      "scopes": [
+        "slack.messages.read"
+      ],
+      "socket": "/tmp/conduit-slack.sock"
+    },
+    {
+      "name": "stream-deck",
+      "id": "dev.conduit.streamdeck.keys/v1",
+      "channel": "keys",
+      "schemas": [
+        "dev.conduit.streamdeck.key/v1"
+      ],
+      "scopes": [
+        "streamdeck.keys.read"
+      ],
+      "socket": "/tmp/conduit-stream-deck.sock"
+    },
+    {
+      "name": "thunderbird",
+      "id": "dev.conduit.thunderbird.messages/v1",
+      "channel": "messages",
+      "schemas": [
+        "dev.conduit.thunderbird.message/v1"
+      ],
+      "scopes": [
+        "thunderbird.messages.read"
+      ],
+      "socket": "/tmp/conduit-thunderbird.sock",
+      "tcp": 18791
+    },
+    {
+      "name": "vscode",
+      "id": "dev.conduit.vscode.tabs/v1",
+      "channel": "tabs",
+      "schemas": [
+        "dev.conduit.vscode.tab/v1"
+      ],
+      "scopes": [
+        "vscode.tabs.read"
+      ],
+      "socket": "/tmp/conduit-vscode.sock"
+    },
+    {
+      "name": "wordpress",
+      "id": "dev.conduit.wordpress.blog/v1",
+      "channel": "wordpress",
+      "schemas": [
+        "dev.conduit.wordpress.site/v1",
+        "dev.conduit.wordpress.post/v1"
+      ],
+      "scopes": [
+        "wordpress.site.read",
+        "wordpress.posts.read"
+      ],
+      "socket": "/tmp/conduit-wordpress.sock"
+    }
+  ]
+}

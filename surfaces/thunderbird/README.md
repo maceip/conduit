@@ -9,7 +9,7 @@ message in front of the user to the near end over the loopback.
 | the manifest Thunderbird reads | `manifest.json` |
 | the background script | `background.js` |
 | what a message is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 ## What it publishes

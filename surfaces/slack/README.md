@@ -15,7 +15,7 @@ sealing.
 | the Slack app manifest | `manifest.json` |
 | the app | `app.js` |
 | what a message is | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the check | `check.mjs` |
 
 `package.json` is here only to tell Node that the files in this

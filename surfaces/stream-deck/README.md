@@ -14,7 +14,7 @@ the sealing.
 | the manifest of the plugin | `manifest.json` |
 | the plugin | `index.js` |
 | what a pressed key says | `publish.js` |
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the property inspector | `property-inspector.html` |
 | the icons | `imgs/` |
 | the check | `check.mjs` |

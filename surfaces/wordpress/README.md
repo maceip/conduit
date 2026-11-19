@@ -18,7 +18,7 @@ This plugin registers three hooks:
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the plugin | `conduit-surface.php` |
 | the client of the near end | `NearEnd.php` |
 

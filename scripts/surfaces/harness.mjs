@@ -52,15 +52,22 @@ export function nearEndBinary() {
 /**
  * The declaration of a surface.
  *
+ * There is one declaration of every surface, in `spec/surfaces.json`,
+ * and this reads it: the surface's directory names the surface.
+ *
  * @param {string} directory the directory of the surface
  * @returns {object} the declaration
  */
 export function declaration(directory) {
-  const path = join(directory, "surface.json");
-  if (!existsSync(path)) {
-    throw new Error(`${path} is not there`);
+  const registry = JSON.parse(
+    readFileSync(join(ROOT, "spec", "surfaces.json"), "utf8"),
+  );
+  const name = directory.split("/").filter(Boolean).pop();
+  const found = registry.surfaces.find((surface) => surface.name === name);
+  if (!found) {
+    throw new Error(`spec/surfaces.json does not name a surface called ${name}`);
   }
-  return JSON.parse(readFileSync(path, "utf8"));
+  return found;
 }
 
 /**

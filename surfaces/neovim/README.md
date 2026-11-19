@@ -11,7 +11,7 @@ This surface is one such package:
 
 | the part | the file |
 |---|---|
-| the declaration | `surface.json` |
+| the declaration | `spec/surfaces.json` |
 | the file Neovim loads | `plugin/conduit.lua` |
 | the module | `lua/conduit/init.lua` |
 

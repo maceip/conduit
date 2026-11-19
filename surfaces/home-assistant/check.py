@@ -278,7 +278,12 @@ def check_the_payload() -> None:
 
 async def run() -> None:
     """The check itself."""
-    surface = json.loads((HERE / "surface.json").read_text(encoding="utf-8"))
+    registry = json.loads(
+        (HERE.parents[1] / "spec" / "surfaces.json").read_text(encoding="utf-8")
+    )
+    surface = next(
+        entry for entry in registry["surfaces"] if entry["name"] == "home-assistant"
+    )
     if STATE_SCHEMA not in (surface.get("schemas") or []):
         raise AssertionError(f"the surface does not declare {STATE_SCHEMA}")
     check_the_files()
