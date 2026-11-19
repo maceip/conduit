@@ -236,6 +236,9 @@ dependencies = [
 name = "conduit-native-host"
 version = "0.1.0"
 dependencies = [
+ "axum",
+ "conduit-broker",
+ "conduit-client",
  "conduit-protocol",
  "futures-util",
  "serde",

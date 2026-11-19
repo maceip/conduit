@@ -206,7 +206,37 @@ impl Client {
             payload: Some(client.hello_payload()),
         };
         client.send(&hello).await?;
+        client.await_welcome().await?;
         Ok(client)
+    }
+
+    /// Wait for the broker's welcome.
+    ///
+    /// The broker refuses an end it does not want: the token does not
+    /// cover the surface, or no extension is on it.  The refusal comes
+    /// as an error frame and then the socket closes, so a connect that
+    /// returned without the welcome would have told the caller
+    /// nothing.
+    async fn await_welcome(&mut self) -> Result<(), ClientError> {
+        loop {
+            let Some(Ok(message)) = self.socket.next().await else {
+                return Err(ClientError::Connection(Box::new(
+                    tokio_tungstenite::tungstenite::Error::AlreadyClosed,
+                )));
+            };
+            let Message::Text(text) = message else {
+                continue;
+            };
+            let frame: Frame = match serde_json::from_str(&text) {
+                Ok(frame) => frame,
+                Err(_) => continue,
+            };
+            match frame.kind {
+                FrameType::Welcome => return Ok(()),
+                FrameType::Error => return Err(ClientError::Refused(text)),
+                _ => continue,
+            }
+        }
     }
 
     /// Subscribe to an address, with those scopes.
