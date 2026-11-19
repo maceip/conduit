@@ -11,6 +11,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+pub mod adapter;
 pub mod sealed;
 
 /// The version of the protocol this crate speaks.

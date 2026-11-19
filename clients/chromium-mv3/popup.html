@@ -10,6 +10,9 @@
       button { margin-top: 8px; }
       form button { margin-top: 0; }
       #error { color: #a33; min-height: 1.5em; margin: 4px 0 0; }
+      #surfaces { list-style: none; margin: 8px 0 0; padding: 0; }
+      #surfaces li { color: #666; font-size: 11px; }
+      #surfaces li.up { color: #1a7f37; }
     </style>
   </head>
   <body>
@@ -19,6 +22,7 @@
       <input id="broker" name="broker" aria-label="broker address" type="text" spellcheck="false" placeholder="wss://broker.example/v1/tunnel" />
       <button id="save" type="submit">save</button>
     </form>
+    <ul id="surfaces"></ul>
     <p id="error" role="status"></p>
     <script src="popup.js"></script>
   </body>

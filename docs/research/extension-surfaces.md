@@ -135,16 +135,74 @@ the user was right that Antigravity hides it, and it's not alone.
 
 ---
 
-## 6. surfaces known but not checked here
+## 6. the surfaces checked in the second pass
 
-marked unverified in this pass; check before building on them:
+the first pass listed these as known but unchecked. they're checked now, one row each, and each carries a source. what's confirmed is that the surface exists and what the third party gets; none of them is measured the way §2 measures MV3.
 
-* Audio Units and VST3 as plugin surfaces (Logic Pro, GarageBand, Ableton, Bitwig, Reaper, Cubase, JUCE, Max/MSP).
-* Postman's pre-request scripts, mitmproxy add-ons, Wireshark Lua.
-* AppleScript and Automation, Shortcuts actions, Keyboard Maestro, Alfred, Raycast extensions, Stream Deck plugins.
-* Home Assistant, Homebridge, ioBroker, openHAB, Docker/OCI hooks, systemd.
-* Discord and Slack surfaces (bots are not extensions), Adobe CEP and UXP, OBS, Kodi, Steam Workshop, Decky.
-* D-Bus, MPD, TouchDesigner, the Chrome DevTools Protocol, DevTools extensions, Playwright/Puppeteer, macOS Accessibility APIs.
+### audio plugins
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **Audio Units** (Logic Pro, GarageBand, every AU host) | a plug-in binary the host loads into its audio graph, with or without UI | [WWDC15 408 — Audio Unit Extensions](https://developer.apple.com/videos/play/wwdc2015/408/) |
+| **VST3** (Ableton, Bitwig, Reaper, Cubase, JUCE, Max/MSP) | a plug-in module the host loads into its audio graph | [Steinberg — Building VST Plug-ins](https://developer.steinberg.help/display/VST/Building+VST+Plug-ins) |
+
+### scripts inside a tool
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **Postman** | pre-request and test scripts, JavaScript in the sandbox | [Intro to scripts](https://learning.postman.com/docs/tests-and-scripts/write-scripts/intro-to-scripts/), [Test scripts](https://learning.postman.com/docs/tests-and-scripts/write-scripts/test-scripts/) |
+| **mitmproxy** | an add-on, a Python class the proxy loads | [mitmproxy — Addons](https://docs.mitmproxy.org/stable/addons-overview/) |
+| **Wireshark** | a Lua tap or dissector, loaded at run time | [Wireshark — Lua](https://wiki.wireshark.org/Lua) |
+
+### the desktop automation layer
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **AppleScript / Automation** | scriptable access to most apps, behind an Automation consent prompt | [AppleScript Language Guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/introduction/ASLR_intro.html) |
+| **Shortcuts** | a library of user-made actions; App Intents is the code side | [Shortcuts User Guide](https://support.apple.com/guide/shortcuts/welcome/ios), [App Intents](https://developer.apple.com/documentation/appintents) |
+| **Keyboard Maestro** | macros the editor runs | [Keyboard Maestro help](https://www.keyboardmaestro.com/help/) |
+| **Alfred** | workflows: triggers, actions, scripts | [Alfred — Workflows](https://www.alfredapp.com/help/workflows/) |
+| **Raycast** | extensions, distributed through Raycast's own store | [Raycast Developers](https://developers.raycast.com/) |
+| **Stream Deck** | plug-ins the driver loads, one per key or panel | [Elgato SDK](https://docs.elgato.com/sdk/) |
+| **macOS Accessibility** | the AXUIElement API: read and drive the UI of other apps | [AXUIElement](https://developer.apple.com/documentation/applicationservices/axuielement) |
+
+### the home and the machine
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **Home Assistant** | an integration, installed from the UI | [integration manifest](https://developers.home-assistant.io/docs/creating_integration_manifest/) |
+| **Homebridge** | a platform plug-in, in Node | [Homebridge Developers](https://developers.homebridge.io/) |
+| **ioBroker** | an adapter | [ioBroker — adapter development](https://github.com/ioBroker/ioBroker.docs/tree/master/docs/en/dev) |
+| **openHAB** | an add-on: bindings, transformations, persistence | [openHAB — Add-ons](https://www.openhab.org/docs/configuration/addons/) |
+| **Docker** | the legacy builder and registry APIs, and the socket itself | [Docker — Extend Docker](https://docs.docker.com/engine/extend/) |
+| **OCI runtime hooks** | a hook program the runtime runs at create/start/stop | [OCI Runtime Spec — hooks](https://github.com/opencontainers/runtime-spec/blob/main/config.md) |
+| **systemd** | units, drop-ins, generators: the machine's own service surface | [systemd.unit(5)](https://www.freedesktop.org/software/systemd/man/systemd.unit.html) |
+
+### the apps with communities around them
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **Discord** | bots, activities, the gateway API — a remote app, not a plug-in | [Developer Portal](https://discord.com/developers/docs/intro) |
+| **Slack** | apps: bots, slash commands, webhooks | [Slack API](https://api.slack.com/) |
+| **Adobe UXP** | a plug-in for Photoshop and the Creative Cloud apps | [Adobe — UXP](https://developer.adobe.com/photoshop/uxp/) |
+| **OBS** | Lua/Python scripts and native plug-ins | [Scripting guide](https://obsproject.com/kb/scripting-guide), [Plugins guide](https://obsproject.com/kb/plugins-guide) |
+| **Kodi** | add-ons of several kinds: plugins, scripts, services, scrapers | [Kodi — Add-on development](https://kodi.wiki/view/Add-on_development) |
+| **Steam Workshop** | user-made content, published through Valve's pipeline | [Steamworks — Workshop](https://partner.steamgames.com/doc/features/workshop) |
+| **Decky** | plug-ins for the Steam Deck's own UI | [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) |
+
+### the interfaces a client drives
+
+| surface | what the third party gets | source |
+|---|---|---|
+| **D-Bus** | methods and signals on the session or system bus | [D-Bus tutorial](https://dbus.freedesktop.org/doc/dbus-tutorial.html) |
+| **MPD** | a text protocol over TCP or a socket | [MPD protocol](https://www.musicpd.org/doc/html/protocol.html) |
+| **TouchDesigner** | Python and C++ extensions of the operator family | [TouchDesigner — Python](https://docs.derivative.ca/Python) |
+| **Chrome DevTools Protocol** | full control of a browser, over a WebSocket | [CDP](https://chromedevtools.github.io/devtools-protocol/) |
+| **DevTools extensions** | a panel inside the DevTools front end | [Extending DevTools](https://developer.chrome.com/docs/extensions/how-to/devtools/extend-devtools) |
+| **Playwright** | a driver that owns a browser the way a test harness does | [Playwright API](https://playwright.dev/docs/api/class-playwright) |
+| **Puppeteer** | the same, over the DevTools Protocol | [Puppeteer](https://pptr.dev/) |
+
+**what the second pass says.** the machine-and-home rows and the interfaces rows are all *secret* in the sense of §1 kind 4: a socket, a protocol, a bus. the desktop-automation rows are the ones a user installs and then forgets. nothing here changes §7; it closes the gaps the first pass left open.
 
 ---
 

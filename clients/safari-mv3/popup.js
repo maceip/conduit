@@ -6,6 +6,7 @@ const toggle = document.getElementById("toggle");
 const form = document.getElementById("configure");
 const brokerInput = document.getElementById("broker");
 const errorLine = document.getElementById("error");
+const surfaceList = document.getElementById("surfaces");
 
 const runtime = typeof browser !== "undefined" && browser.runtime ? browser : chrome;
 
@@ -25,6 +26,26 @@ function describe(reply) {
   return "connecting";
 }
 
+/* The surfaces, one line each: what the extension offers, and whether
+ * that one is up.  A surface is a module, so the list is the list of
+ * modules the extension was built with. */
+function showSurfaces(reply) {
+  if (!surfaceList) {
+    return;
+  }
+  surfaceList.textContent = "";
+  for (const surface of reply.surfaces || []) {
+    const item = document.createElement("li");
+    item.textContent = `${surface.id} — ${
+      surface.connected ? "up" : surface.pairing ? "waiting for approval" : surface.paired ? "connecting" : "not paired"
+    }`;
+    if (surface.connected) {
+      item.className = "up";
+    }
+    surfaceList.appendChild(item);
+  }
+}
+
 function show(reply) {
   if (!reply || !reply.ok) {
     statusLine.textContent = "no answer from the tunnel";
@@ -37,6 +58,7 @@ function show(reply) {
   if (document.activeElement !== brokerInput && reply.broker) {
     brokerInput.value = reply.broker;
   }
+  showSurfaces(reply);
   errorLine.textContent = reply.error ? String(reply.error) : "";
 }
 

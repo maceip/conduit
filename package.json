@@ -1,0 +1,10 @@
+{
+  "name": "conduit",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test clients/shared/*.test.js",
+    "test:browser": "node scripts/browser-test.mjs",
+    "test:e2e": "scripts/e2e/run.sh"
+  }
+}

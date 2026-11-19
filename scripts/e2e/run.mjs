@@ -32,6 +32,8 @@ const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const LOGS = join(ROOT, "target", "e2e");
 const SURFACE = "dev.conduit.browser.tabs/v1";
 const ADDRESS = "conduit://dev.conduit.browser.tabs/tabs@v1";
+const WINDOWS_SURFACE = "dev.conduit.browser.windows/v1";
+const WINDOWS_ADDRESS = "conduit://dev.conduit.browser.windows/windows@v1";
 const HEADED = process.env.E2E_HEADED === "1";
 const FLOOD = 1000;
 
@@ -142,11 +144,11 @@ function startPages() {
 
 /* ---- the client ---- */
 
-function startClient(name, broker, token, args) {
+function startClient(name, broker, token, args, address = ADDRESS) {
   const out = createWriteStream(join(LOGS, `client-${++logIndex}-${name}.log`));
   const child = spawn(
     join(ROOT, "target", "debug", "examples", "e2e"),
-    ["--broker", broker, "--token", token, "--address", ADDRESS, ...args],
+    ["--broker", broker, "--token", token, "--address", address, ...args],
     { cwd: ROOT, stdio: ["ignore", "pipe", "pipe"] },
   );
   const client = { name, child, lines: [], exited: null };
@@ -186,9 +188,9 @@ function startClient(name, broker, token, args) {
 
 /* A client that has the tunnel, retrying while the previous one is
  * still letting go of it. */
-async function attachClient(name, broker, token, args) {
+async function attachClient(name, broker, token, args, address = ADDRESS) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const client = startClient(name, broker, token, args);
+    const client = startClient(name, broker, token, args, address);
     const first = await client.wait((line) => line.type === "event" || line.type === "refused" || line.type === "fatal" || line.type === "closed", 10000);
     if (first && first.type === "refused" && /another client/.test(first.message || "")) {
       await client.stop();
@@ -323,35 +325,63 @@ async function main() {
   await popup.locator("#broker").fill(broker);
   await popup.locator("#save").click();
 
-  // 3. pairing: the extension asks for a code and opens the broker's page.
-  const approvePage = await until(() => context.pages().find((page) => page.url().startsWith(`${http}/v1/device/approve-page?code=`)));
-  check("pairing: the extension asks the broker for a code and opens its approve page", approvePage, approvePage && approvePage.url().replace(/code=.*/, "code=…"));
-  if (!approvePage) {
-    throw new Error("no approve page; nothing after this can run");
+  // 3. pairing: the extension asks for a code per surface and opens the
+  //    broker's page for each.  A secret belongs to one surface, so the
+  //    codes are asked for one surface at a time.
+  const approvePages = await until(() => {
+    const found = context.pages().filter((page) => page.url().startsWith(`${http}/v1/device/approve-page?code=`));
+    return found.length >= 2 ? found : null;
+  });
+  check(
+    "pairing: the extension asks the broker for a code per surface and opens its approve pages",
+    approvePages,
+    approvePages ? `${approvePages.length} page(s)` : "none",
+  );
+  if (!approvePages) {
+    throw new Error("no approve pages; nothing after this can run");
   }
-  await approvePage.waitForLoadState();
-  const offer = await approvePage.locator("body").textContent();
-  check("the approve page names the surface + the scope asked for", offer.includes(SURFACE) && offer.includes("browser.tabs.read"), offer.trim());
-  await approvePage.getByRole("button", { name: "approve" }).click();
-  await approvePage.waitForLoadState();
-  const approved = await approvePage.locator("h1").textContent();
-  check("approve on the broker's page => approved", approved === "approved", approved);
+  for (const page of approvePages) {
+    await page.waitForLoadState();
+    const offer = await page.locator("body").textContent();
+    const which = offer.includes(SURFACE) ? SURFACE : offer.includes(WINDOWS_SURFACE) ? WINDOWS_SURFACE : null;
+    const scope = which === SURFACE ? "browser.tabs.read" : "browser.windows.read";
+    check(
+      `the approve page names the surface + the scope asked for (${which || "no surface"})`,
+      which !== null && offer.includes(scope),
+      offer.trim(),
+    );
+    await page.getByRole("button", { name: "approve" }).click();
+    await page.waitForLoadState();
+    const approved = await page.locator("h1").textContent();
+    check(`approve on the broker's page => approved (${which || "?"})`, approved === "approved", approved);
+  }
 
-  // 4. the extension gets its secret and opens the tunnel.
+  // 4. the extension gets its secrets and opens the tunnels.
   const connected = await until(async () => (await popup.locator("#status").textContent()) === "connected", { timeout: 20000 });
   check("the popup shows connected", connected, await popup.locator("#status").textContent());
-  const stored = await worker.evaluate(() => chrome.storage.local.get(["conduit.secret", "conduit.broker"]));
-  const secret = stored["conduit.secret"] || "";
+  const stored = await worker.evaluate(() => chrome.storage.local.get(null));
+  const secret = stored["conduit.secret." + SURFACE] || "";
+  const windowSecret = stored["conduit.secret." + WINDOWS_SURFACE] || "";
   check(
     "the secret is 256 bits, base64url, kept in storage.local with the broker",
     BASE64URL.test(secret) && fromBase64Url(secret).length === 32 && stored["conduit.broker"] === broker,
     `${fromBase64Url(secret).length} bytes; broker ${stored["conduit.broker"]}`,
   );
-  const created = wire.created[0];
+  check(
+    "each surface has its own secret: the broker binds a secret to one surface",
+    BASE64URL.test(windowSecret) && windowSecret !== secret && fromBase64Url(windowSecret).length === 32,
+    `${fromBase64Url(windowSecret).length} bytes`,
+  );
+  const created = wire.created.find((entry) => new URL(entry.url).searchParams.get("surface") === SURFACE);
   check(
     "the extension's socket presents the secret on the tunnel url",
     created && new URL(created.url).searchParams.get("secret") === secret && new URL(created.url).searchParams.get("surface") === SURFACE,
     created ? created.url.replace(/secret=[^&]+/, "secret=…") : "no socket",
+  );
+  check(
+    "one socket per surface: the near end carries each one on its own",
+    wire.created.filter((entry) => new URL(entry.url).searchParams.get("surface") === WINDOWS_SURFACE).length === 1,
+    `${wire.created.length} socket(s) in all`,
   );
 
   // 5. hello + welcome, as sent and received on the wire.
@@ -411,6 +441,16 @@ async function main() {
   check("navigating again => the client gets the new tab state", event2 && event2.payload.title === `conduit e2e ${nonce}-2`, event2 ? event2.payload.title : "none");
   await a.stop();
 
+  // 9b. the second surface: the same near end, carrying another module.
+  const w = await attachClient("windows", broker, token, ["--scope", "browser.windows.read"], WINDOWS_ADDRESS);
+  const windowEvent = await w.wait((line) => line.type === "event" && line.schema === "dev.conduit.browser.window/v1");
+  check(
+    "the second surface publishes too: the client opens a sealed window, sealed by the same near end",
+    windowEvent && windowEvent.payload && windowEvent.payload.id !== null && typeof windowEvent.payload.tabs === "number",
+    windowEvent ? JSON.stringify(windowEvent.payload) : JSON.stringify(w.lines.slice(-3)),
+  );
+  await w.stop();
+
   // 10. a scope outside the grant.
   const b = await attachClient("out-of-grant", broker, token, ["--scope", "browser.tabs.write"]);
   const denied = await b.wait((line) => line.type === "refused");
@@ -459,14 +499,20 @@ async function main() {
   check("stopped stays stopped: no reconnect", wire.created.length === socketsBefore, `${wire.created.length - socketsBefore} new sockets`);
 
   // 13. start again: the stored secret, no new approval.
-  const approvePages = context.pages().filter((page) => page.url().includes("/v1/device/approve-page")).length;
+  const approvePageCount = context.pages().filter((page) => page.url().includes("/v1/device/approve-page")).length;
   await popup.locator("#toggle").click();
   const again = await until(async () => (await popup.locator("#status").textContent()) === "connected", { timeout: 20000 });
   check("press start => connected again", again, await popup.locator("#status").textContent());
+  const newSockets = wire.created.slice(socketsBefore);
+  const secretsRight = newSockets.every((entry) => {
+    const url = new URL(entry.url);
+    const want = url.searchParams.get("surface") === SURFACE ? secret : windowSecret;
+    return url.searchParams.get("secret") === want;
+  });
   check(
-    "start reuses the secret: same secret on the url, no second approve page",
-    wire.created.length === socketsBefore + 1 && new URL(wire.created.at(-1).url).searchParams.get("secret") === secret && context.pages().filter((page) => page.url().includes("/v1/device/approve-page")).length === approvePages,
-    `${wire.created.length - socketsBefore} new socket(s)`,
+    "start reuses the secrets: same secret on every url, no second approve page",
+    newSockets.length === 2 && secretsRight && context.pages().filter((page) => page.url().includes("/v1/device/approve-page")).length === approvePageCount,
+    `${newSockets.length} new socket(s)`,
   );
   await target.bringToFront();
   const d = await attachClient("after-restart", broker, token, ["--scope", "browser.tabs.read"]);

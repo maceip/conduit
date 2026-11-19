@@ -28,11 +28,23 @@ then both ends open a websocket to the broker and say hello. hello carries a pub
 
 rust in `crates/`, chromium + safari extensions in `clients/`, json schemas in `spec/`, app survey in `docs/research/`.
 
+## the surfaces
+
+a surface is a module: an id, a channel, the schemas it may carry, the scopes it asks for, and a read. the tunnel machinery in `clients/shared/near-end.js` carries any surface and knows nothing about what it carries, so a new surface is a new module and not a new tunnel.
+
+| surface | module | what it publishes |
+|---|---|---|
+| the browser tab | `clients/shared/surface-browser.js` | the url + title of the tab in front of the user |
+| the browser windows | `clients/shared/surface-windows.js` | the windows the browser has open, and how many tabs each holds |
+
+a surface never publishes a stand-in: when the read says there is nothing, nothing is published. the next surfaces are the ones the research names, one module each: mail compose, mail action, the finder sync extension, and the rest.
+
 ## run it
 
 ```sh
 cargo test --workspace
 node --test clients/shared/*.test.js
+node --test clients/shared/*.test.js # the surfaces, and the sealing
 node scripts/browser-test.mjs       # sealing, in real Chromium
 scripts/e2e/run.sh                  # broker + extension in chromium + rust client, end to end
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
@@ -41,9 +53,9 @@ node scripts/build-extension.mjs    # => target/extension/{chromium,safari}-mv3,
 
 ## status
 
-shipped + tested: protocol, broker, client lib, safari native host, both extensions, one surface (the browser tab). rust and browser sealing match byte for byte on a shared test vector.
+shipped + tested: protocol, broker, client lib, safari native host, both extensions, two surfaces (the browser tab and the browser windows). rust and browser sealing match byte for byte on a shared test vector.
 
-not built: adapters for mail, desktop apps, anything past the browser tab. each app family needs its own.
+not built: adapters for mail, desktop apps, anything past the browser. each app family needs its own; the plan is in [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md).
 
 verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
 

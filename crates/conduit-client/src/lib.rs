@@ -323,6 +323,10 @@ impl Client {
     }
 
     /// The payload of the hello: who we are, and the public key.
+    ///
+    /// The key material is base64url without padding — the encoding
+    /// the protocol names for the sealed blob, and the one the
+    /// extension sends.
     fn hello_payload(&self) -> String {
         serde_json::json!({
             "role": "client",

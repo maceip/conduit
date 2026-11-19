@@ -35,7 +35,7 @@ jobs:
 
       - name: The extension clients parse
         run: |
-          for file in clients/shared/background.js clients/shared/config.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js scripts/build-extension.mjs scripts/e2e/run.mjs; do
+          for file in clients/shared/*.js clients/chromium-mv3/popup.js clients/safari-mv3/popup.js scripts/build-extension.mjs scripts/e2e/run.mjs; do
             node --check "$file"
             echo "ok $file"
           done
