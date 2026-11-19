@@ -14,13 +14,13 @@
     "schemes": { "type": "array", "items": { "type": "string" } },
     "crypto": {
       "type": "object",
+      "description": "The scheme the two ends agree the payload on, and the key material of this end. The public key and the nonce prefix are base64url without padding — the same encoding as the sealed blob.",
       "additionalProperties": false,
       "required": ["scheme", "public", "prefix"],
-      "description": "The scheme the two ends agree the payload on, and the key material of this end. The public key and the nonce prefix are base64url without padding — the same encoding as the sealed blob.",
       "properties": {
         "scheme": { "type": "string", "description": "For example p256-aes256gcm/v1." },
-        "public": { "type": "string", "description": "The uncompressed P-256 public key of this end (65 bytes), base64url without padding." },
-        "prefix": { "type": "string", "description": "The four bytes this end prefixes its nonces with, base64url without padding." }
+        "public": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "The uncompressed P-256 point of this end (65 bytes), base64url without padding." },
+        "prefix": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$", "description": "The four bytes this end prefixes its nonces with, base64url without padding." }
       }
     }
   }

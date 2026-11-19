@@ -73,8 +73,15 @@ async fn main() {
             })
             .await;
     }
+
+    // The client token of the bootstrap: CONDUIT_CLIENT_TOKEN, or
+    // `bootstrap-token`.  It covers every bootstrap surface.
+    let token = std::env::var("CONDUIT_CLIENT_TOKEN")
+        .ok()
+        .filter(|token| !token.is_empty())
+        .unwrap_or_else(|| "bootstrap-token".to_string());
     registry
-        .put_token("bootstrap-token", vec![tabs_id, windows_id, surface_id])
+        .put_token(&token, vec![tabs_id, windows_id, surface_id])
         .await;
 
     let state = AppState {
@@ -84,12 +91,15 @@ async fn main() {
         extension_secret: "bootstrap-secret".to_string(),
     };
 
-    let address: SocketAddr = "127.0.0.1:8787".parse().expect("the address is an address");
+    // CONDUIT_LISTEN, or 127.0.0.1:8787; port 0 => a free port, printed.
+    let listen = std::env::var("CONDUIT_LISTEN").unwrap_or_else(|_| "127.0.0.1:8787".to_string());
+    let address: SocketAddr = listen.parse().expect("bad listen address");
     let listener = tokio::net::TcpListener::bind(address)
         .await
-        .expect("the port is free");
+        .expect("bind failed");
+    let address = listener.local_addr().expect("bound address");
     println!("conduit-broker listening on ws://{address}/v1/tunnel");
     axum::serve(listener, router(state))
         .await
-        .expect("the server runs");
+        .expect("server exited");
 }
