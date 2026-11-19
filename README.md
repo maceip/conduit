@@ -2,9 +2,9 @@
 
 ![Conduit](docs/social-preview.jpg)
 
-most apps have no seam a third party can use. apple ships 400+ app extensions and most users never see the list.
+most apps give third parties no way in. apple ships 400+ app extensions and most users never see the list.
 
-conduit is that seam: a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
+conduit is a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
 
 ![The extension, the broker and the client](docs/diagrams/topology.svg)
 
@@ -47,7 +47,7 @@ not verified: the full extension in chrome. logic is tested against a mocked bro
 
 ## why research first
 
-the platforms pick the design. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
+chromium and safari decided most of this. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
 
 ## licence
 
