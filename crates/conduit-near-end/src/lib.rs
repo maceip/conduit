@@ -872,6 +872,33 @@ mod tests {
         assert_eq!(config.surfaces[0].socket, PathBuf::from("/tmp/tabs.sock"));
     }
 
+    #[tokio::test]
+    async fn a_message_is_a_length_and_then_the_bytes() {
+        let mut writer: Vec<u8> = Vec::new();
+        write_frame(&mut writer, b"{\"t\":\"publish\"}")
+            .await
+            .expect("the message goes");
+        assert_eq!(&writer[..4], &[0, 0, 0, 15]);
+        assert_eq!(&writer[4..], b"{\"t\":\"publish\"}");
+
+        // And it comes back the same.
+        let mut reader: &[u8] = writer.as_slice();
+        let body = read_frame(&mut reader).await.expect("the message comes");
+        assert_eq!(body, b"{\"t\":\"publish\"}");
+        assert!(reader.is_empty(), "there was nothing else");
+    }
+
+    #[tokio::test]
+    async fn a_message_that_is_too_long_is_not_read() {
+        let mut bytes: Vec<u8> = vec![0xff, 0xff, 0xff, 0xff];
+        let mut reader: &[u8] = bytes.as_mut_slice();
+        let body = read_frame(&mut reader).await;
+        assert!(
+            body.is_none(),
+            "a message of four gigabytes is not a message"
+        );
+    }
+
     #[test]
     fn a_plugin_publishes_a_frame_of_the_tunnels_own_shape() {
         let frame = Frame {
