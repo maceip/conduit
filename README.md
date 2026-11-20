@@ -8,6 +8,10 @@ conduit is a protocol + reference impl that lets a client (cli, ide, agent) reac
 
 ![plugin, near-end, broker, client](docs/diagrams/topology.svg)
 
+where does the broker run? wherever you run it. default is local (`127.0.0.1:8787`, nothing leaves the machine); for remote clients or agents you self-host `conduit-broker` over `wss://`. there is no hosted broker service yet, and the broker never sees payloads either way.
+
+what is `near-end`? the process that holds the websocket and P-256 key. in chromium it's optional: the mv3 extension itself is the near-end (no extra process). outside chromium (safari, vs code, mail, etc.), app plugins get unloaded and shouldn't hold keys => `conduit-near-end` runs locally, takes plain json frames from the plugin, and seals them.
+
 more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md), [`docs/rearchitecture.md`](docs/rearchitecture.md)
 
 ## the protocol
@@ -39,7 +43,7 @@ a surface is a module: an id, a channel, the schemas it may carry, the scopes it
 
 a surface never publishes a stand-in: when the read says there is nothing, nothing is published.
 
-outside a browser, a surface is three parts: the app, the plugin inside it, and the **near end** — a process that holds the socket and does the sealing, because a plugin cannot be trusted with either. fifteen of them are here:
+outside a browser, a surface has three parts: the app, the plugin inside it, and `conduit-near-end` (the local process that holds the socket and does the sealing, because a plugin shouldn't hold either). fifteen of them are here:
 
 | surface | the app | what it publishes |
 |---|---|---|
@@ -59,7 +63,7 @@ outside a browser, a surface is three parts: the app, the plugin inside it, and 
 | [`vscode`](surfaces/vscode) | vs code | the tab in front of the user |
 | [`wordpress`](surfaces/wordpress) | wordpress | the site, and each post |
 
-what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). in short: eleven of them are checked end to end here — a real broker, a real near end, the plugin's own code — and the four whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
+what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). eleven are checked end to end here (real broker, real near-end, the plugin's own code); the four whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
 
 whatsapp has no extension surface at all: everything third-party is server-side, so there is no whatsapp surface here, and the reason is in [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md).
 
@@ -84,7 +88,7 @@ verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension
 
 verified outside a browser: eleven surfaces are checked here against a real broker and a real near end, with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
 
-not verified: safari itself, and the four surfaces whose runtime is not on this machine — apple mail, apple shortcuts, wordpress and neovim. their code is written and was never run.
+not verified: safari itself, and the four surfaces whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim). their code is written and was never run.
 
 ## why research first
 
