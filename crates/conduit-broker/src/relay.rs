@@ -451,12 +451,10 @@ fn subscribed(frame: &Frame, scopes: &[Scope]) -> String {
 /// (`dev.conduit.subscribe/v1`; subscribe is not sealed, the broker has
 /// to read it).
 fn scopes_of(frame: &Frame) -> Vec<Scope> {
-    let Some(payload) = frame.payload.as_ref().and_then(|body| body.as_str()) else {
+    // The payload of a subscribe is JSON: the envelope carries JSON,
+    // not a string of JSON that has to be parsed again.
+    let Some(value) = frame.payload.as_ref() else {
         return Vec::new();
-    };
-    let value: serde_json::Value = match serde_json::from_str(payload) {
-        Ok(value) => value,
-        Err(_) => return Vec::new(),
     };
     value
         .get("scopes")

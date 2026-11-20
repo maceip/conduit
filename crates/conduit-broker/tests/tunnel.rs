@@ -208,8 +208,7 @@ async fn a_subscription_for_a_scope_that_was_not_granted_is_refused() {
         "p": serde_json::json!({
             "channel": "mail.messages",
             "scopes": ["mail.compose.write"],
-        })
-        .to_string(),
+        }),
     })
     .to_string();
     client
@@ -262,8 +261,7 @@ async fn a_subscription_for_a_scope_that_was_granted_goes_through() {
         "p": serde_json::json!({
             "channel": "mail.messages",
             "scopes": ["mail.compose.read"],
-        })
-        .to_string(),
+        }),
     })
     .to_string();
     client
@@ -474,7 +472,7 @@ async fn a_granted_subscription_is_answered_with_subscribed() {
         "s": "dev.conduit.subscribe/v1",
         "c": "compose",
         "seq": 1,
-        "p": serde_json::json!({ "channel": "compose", "scopes": ["mail.compose.read"] }).to_string(),
+        "p": serde_json::json!({ "channel": "compose", "scopes": ["mail.compose.read"] }),
     })
     .to_string();
     client

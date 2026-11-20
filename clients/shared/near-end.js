@@ -214,7 +214,7 @@ export function createNearEnd(surface, options = {}) {
       s: "dev.conduit.hello/v1",
       c: surface.channel,
       seq: nextSequence(),
-      p: JSON.stringify({
+      p: {
         role: "extension",
         surface: surface.id,
         resume: state.sequence,
@@ -223,7 +223,7 @@ export function createNearEnd(surface, options = {}) {
           public: toBase64Url(state.keys.publicBytes),
           prefix: toBase64Url(state.prefix),
         },
-      }),
+      },
     };
   }
 
@@ -235,7 +235,13 @@ export function createNearEnd(surface, options = {}) {
       if (!state.tunnel || payload === null || payload === undefined) {
         return false;
       }
-      state.native.send({ op: "publish", schema, payload });
+      state.native.send({
+        t: "publish",
+        s: schema,
+        c: surface.channel,
+        seq: 0,
+        p: payload,
+      });
       return true;
     }
     if (!state.tunnel || payload === null || payload === undefined) {
@@ -267,7 +273,7 @@ export function createNearEnd(surface, options = {}) {
 
   /* Take the hello of the other end and agree the keys of the tunnel. */
   async function meet(payload) {
-    const hello = JSON.parse(payload);
+    const hello = payload || {};
     const crypto = hello.crypto || {};
     if (crypto.scheme !== "p256-aes256gcm/v1") {
       return false;
@@ -335,33 +341,43 @@ export function createNearEnd(surface, options = {}) {
        * does the rest: the keys, the sealing, the pings. */
       const port = nativeHost.open();
       state.native = port;
-      port.on(async (message) => {
-        if (!message || typeof message !== "object") {
+      port.on(async (frame) => {
+        if (!frame || typeof frame !== "object") {
           return;
         }
-        if (message.op === "status" && message.agreed) {
+        if (frame.t === "welcome") {
+          /* The broker welcomed the near end: the tunnel is up. */
           state.tunnel = { native: true };
           state.backoff = config.backoffMinMs;
           /* The far end asked for the surface: say what it reads now. */
           await publishState();
           return;
         }
-        if (message.op === "event") {
+        if (frame.t === "publish" || frame.t === "result") {
           /* The far end said something: the surface answers with what
            * it reads now, under the schema it asked for. */
-          await publishState(message.schema);
+          await publishState(frame.s);
           return;
         }
-        if (message.op === "error") {
+        if (frame.t === "error") {
           state.tunnel = null;
           scheduleReconnect();
         }
       });
+      /* The connect frame says where the broker is and what secret may
+       * be presented on it.  It never goes near the tunnel. */
       port.send({
-        op: "connect",
-        broker: config.broker,
-        secret: config.secret,
-        instance: config.instance,
+        t: "connect",
+        s: surface.id,
+        c: surface.channel,
+        seq: nextSequence(),
+        p: {
+          broker: config.broker,
+          secret: config.secret,
+          instance: config.instance,
+          surface: surface.id,
+          channel: surface.channel,
+        },
       });
       return;
     }

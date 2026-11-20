@@ -388,7 +388,7 @@ async function main() {
   const sentHello = wire.sent.find((entry) => entry.frame && entry.frame.t === "hello");
   const welcome = wire.received.find((entry) => entry.frame && entry.frame.t === "welcome");
   check("the extension says hello; the broker welcomes it", sentHello && welcome, welcome && welcome.text);
-  const theirHello = sentHello ? JSON.parse(sentHello.frame.p) : {};
+  const theirHello = sentHello ? sentHello.frame.p || {} : {};
   const key = theirHello.crypto || {};
   check(
     "extension hello: public key = 65-byte p-256 point, prefix = 4 bytes, both base64url",
@@ -399,8 +399,8 @@ async function main() {
   // 6. a real client subscribes.
   const a = await attachClient("subscriber", broker, token, ["--scope", "browser.tabs.read"]);
   check("the client connects and subscribes", a.find((line) => line.type === "connected") && a.find((line) => line.type === "subscribe"), JSON.stringify(a.lines[0]));
-  const clientHello = await until(() => wire.received.find((entry) => entry.frame && entry.frame.t === "hello" && JSON.parse(entry.frame.p).role === "client"));
-  const clientKey = clientHello ? JSON.parse(clientHello.frame.p).crypto : {};
+  const clientHello = await until(() => wire.received.find((entry) => entry.frame && entry.frame.t === "hello" && entry.frame.p && entry.frame.p.role === "client"));
+  const clientKey = clientHello ? clientHello.frame.p.crypto : {};
   check(
     "client hello reaches the extension: 65-byte key + 4-byte prefix, base64url",
     clientKey && BASE64URL.test(clientKey.public || "") && fromBase64Url(clientKey.public).length === 65 && BASE64URL.test(clientKey.prefix || "") && fromBase64Url(clientKey.prefix).length === 4,
