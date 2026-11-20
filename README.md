@@ -6,7 +6,7 @@ most apps give third parties no way in. apple ships 400+ app extensions and most
 
 conduit is a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
 
-![The extension, the broker and the client](docs/diagrams/topology.svg)
+![plugin, near-end, broker, client](docs/diagrams/topology.svg)
 
 more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md), [`docs/rearchitecture.md`](docs/rearchitecture.md)
 

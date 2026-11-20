@@ -1,13 +1,15 @@
 sequenceDiagram
-  participant extension
+  participant plugin
+  participant near-end
   participant broker
   participant client
-  extension->>broker: hello: key, last seq
-  client->>broker: hello: key, last seq
-  broker-->>client: welcome + missed frames
-  extension->>broker: publish, sealed
-  broker-->>client: publish, still sealed
-  client->>broker: call, sealed
-  broker->>extension: call
-  extension->>broker: result, sealed
-  broker-->>client: result
+  near-end->>broker: hello (p256 key)
+  client->>broker: hello (p256 key)
+  broker-->>client: welcome + peer hello
+  client->>broker: subscribe (scopes)
+  broker-->>client: subscribed
+  plugin->>near-end: publish (plain json)
+  near-end->>broker: publish (sealed p)
+  broker-->>client: publish (still sealed)
+  client->>broker: call (sealed p)
+  broker-->>near-end: call (still sealed)
