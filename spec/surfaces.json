@@ -1,5 +1,5 @@
 {
-  "$comment": "The registry of surfaces: one declaration of every surface, and everything else reads it. The near end is told about a surface from here, the checks read it, and the pages of the site are written from it.",
+  "$comment": "The registry of surfaces: one declaration of every surface, and everything else reads it. The optional local bridge reads it, the checks read it, and the pages of the site are written from it.",
   "version": 1,
   "surfaces": [
     {

@@ -1,15 +1,13 @@
 sequenceDiagram
-  participant plugin
-  participant near-end
+  participant surface
   participant broker
   participant client
-  near-end->>broker: hello (p256 key)
+  surface->>broker: hello (p256 key)
   client->>broker: hello (p256 key)
   broker-->>client: welcome + peer hello
   client->>broker: subscribe (scopes)
   broker-->>client: subscribed
-  plugin->>near-end: publish (plain json)
-  near-end->>broker: publish (sealed p)
+  surface->>broker: publish (sealed p)
   broker-->>client: publish (still sealed)
   client->>broker: call (sealed p)
-  broker-->>near-end: call (still sealed)
+  broker-->>surface: call (still sealed)

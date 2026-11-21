@@ -18,31 +18,34 @@ publishes under that grant.
 ┌──────────────────┐      ┌─────────────────────┐     ┌──────────────────┐
 │                  │      │                     │     │                  │
 │  ┌────────────┐  │      │  registry           │     │  CLI / SDK       │
-│  │ extension  │──┼──────┼─▶ scopes & grants   │◀┼────┼─▶ IDE / agent   │
-│  │ (the near  │  │ WSS  │  schema registry    │ │    │  (the far end)  │
-│  │  end)      │◀─┼──────┼─▶ typed relay       │     │                  │
+│  │  surface   │──┼──────┼─▶ scopes & grants   │◀┼────┼─▶ IDE / agent   │
+│  │ (extension │  │ WSS  │  schema registry    │ │    │                  │
+│  │  / plugin) │◀─┼──────┼─▶ typed relay       │     │                  │
 │  └────────────┘  │      │  replay ring        │     │                  │
 │                  │      │  (sees no payload)  │     │                  │
 │  the app's own   │      └─────────────────────┘     └──────────────────┘
 │  permissions,   │               ▲   ▲
 │  the app's own  │               │   │  payload is sealed end to end
 │  context        │               │   │
-└──────────────────┘      the near end      the far end
-                          holds the app's   holds the client's
-                          context           context
+└──────────────────┘       the surface       the client
+                           holds the app's   holds the client's
+                           context           context
 ```
 
 ### two ends
 
-near end = the extension. it runs inside the app's own sandbox with the
-app's own permissions; in Mail it's a MailKit extension with access to the
-message being composed, in a browser it's a service worker with the host
-permissions the user granted. it's the only component that can read app
-state and the only one that decides what to publish.
+surface = the extension or plugin inside the app. it runs with the app's
+own permissions (in a browser it's an MV3 service worker with the host
+permissions the user granted; in a desktop app it's a plugin). it's the
+only component that can read app state and decides what to publish. for
+runtimes that can't hold a socket or key (safari, short-lived per-event
+plugins like MailKit, Shortcuts, or WordPress), an optional local bridge
+(`crates/conduit-near-end`) can hold the socket and seal frames on its
+behalf.
 
-far end = the client: a CLI, an IDE integration, an agent harness, another
-extension. it subscribes to a *surface* (a named channel with a schema and a
-scope set) and receives the frames the extension publishes under it.
+client = a CLI, an IDE integration, an agent harness, another extension.
+it subscribes to a *surface* (a named channel with a schema and a scope
+set) and receives the frames the surface publishes under it.
 
 middle = the broker. deliberately dumb about content: it routes frames,
 enforces scopes, validates the envelope, keeps a short replay ring, and
@@ -151,7 +154,7 @@ loopback-only tunnel with no broker at all; see "loopback" below).
 
 this is where the research pays off.
 
-### chromium: near end is a service worker
+### chromium: surface runs in a service worker
 
 * tunnel is a WebSocket to the broker.
 * ping every 20s. from Chrome 116, WebSocket traffic resets the 30s
@@ -165,7 +168,7 @@ this is where the research pays off.
 * the client of a chromium surface can itself be a chromium extension; then
   both ends meet in the same broker and never touch the network.
 
-### safari: near end is a native process
+### safari: optional local bridge (native host)
 
 * the extension's background is a background page (`background.scripts`),
   because an MV3 service worker never started on Safari 26.5.2, and Safari
@@ -177,7 +180,7 @@ this is where the research pays off.
 * the native host holds the WebSocket. WebSocket connections to `127.0.0.1`
   are broken in Safari => no loopback fallback; and the native host
   survives the background page dying, which is what a tunnel needs.
-* the native host is the near end in its `--native` mode
+* the native host is the optional local bridge in `--native` mode
   (`crates/conduit-near-end`), since native
   messaging runs any executable and the rest of the project is Rust.
 * Safari native messaging has a measured 150-active-request guard and needs

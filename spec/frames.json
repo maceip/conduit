@@ -12,6 +12,6 @@
     { "type": "error",      "direction": "both",             "schema": "dev.conduit.error/v1",      "sealed": false },
     { "type": "ping",       "direction": "both",             "schema": "dev.conduit.ping/v1",       "sealed": false },
     { "type": "pong",       "direction": "both",             "schema": "dev.conduit.pong/v1",       "sealed": false },
-    { "type": "connect",    "direction": "plugin->near-end","schema": "dev.conduit.connect/v1",    "sealed": false }
+    { "type": "connect",    "direction": "local-bridge-only","schema": "dev.conduit.connect/v1",    "sealed": false }
   ]
 }

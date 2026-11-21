@@ -47,7 +47,7 @@ closed.
 | `error` | either | `dev.conduit.error/v1` | it failed + why |
 | `ping` | either | `dev.conduit.ping/v1` | i'm here |
 | `pong` | either | `dev.conduit.pong/v1` | i'm here too |
-| `connect` | plugin → near end | `dev.conduit.connect/v1` | where the broker is, and the secret; never goes near the tunnel |
+| `connect` | local bridge only | `dev.conduit.connect/v1` | optional local helper control frame (Safari + short-lived plugins); not part of the tunnel, broker refuses it |
 
 `ping` keeps a chromium worker alive. from Chrome 116, sending or receiving
 it resets the service worker's 30s idle timer; an idle socket doesn't. the

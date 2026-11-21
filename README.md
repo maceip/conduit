@@ -6,11 +6,11 @@ most apps give third parties no way in. apple ships 400+ app extensions and most
 
 conduit is a protocol + reference impl that lets a client (cli, ide, agent) reach state inside an app over a tunnel the user can see and revoke. the client never touches the app's process, memory or permissions; it gets what the user granted and nothing else.
 
-![plugin, near-end, broker, client](docs/diagrams/topology.svg)
+![surface, broker, client](docs/diagrams/topology.svg)
 
 where does the broker run? wherever you run it. default is local (`127.0.0.1:8787`, nothing leaves the machine); for remote clients or agents you self-host `conduit-broker` over `wss://`. there is no hosted broker service yet, and the broker never sees payloads either way.
 
-what is `near-end`? the process that holds the websocket and P-256 key. in chromium it's optional: the mv3 extension itself is the near-end (no extra process). outside chromium (safari, vs code, mail, etc.), app plugins get unloaded and shouldn't hold keys => `conduit-near-end` runs locally, takes plain json frames from the plugin, and seals them.
+the protocol is strictly `surface <-> broker <-> client`. long-lived surfaces (like the chromium mv3 extension) talk to the broker directly. for safari (where `127.0.0.1` websockets are broken and background pages unload) and short-lived per-event plugins (mailkit, shortcuts, wordpress), `conduit-near-end` is an optional local bridge that holds the socket and seals frames.
 
 more => [`docs/architecture.md`](docs/architecture.md), [`docs/protocol.md`](docs/protocol.md), [`docs/rearchitecture.md`](docs/rearchitecture.md)
 
@@ -43,7 +43,7 @@ a surface is a module: an id, a channel, the schemas it may carry, the scopes it
 
 a surface never publishes a stand-in: when the read says there is nothing, nothing is published.
 
-outside a browser, a surface has three parts: the app, the plugin inside it, and `conduit-near-end` (the local process that holds the socket and does the sealing, because a plugin shouldn't hold either). fifteen of them are here:
+outside chromium, fifteen app surfaces are here (using the optional local bridge `conduit-near-end` where a plugin can't hold a socket or key):
 
 | surface | the app | what it publishes |
 |---|---|---|
@@ -63,7 +63,7 @@ outside a browser, a surface has three parts: the app, the plugin inside it, and
 | [`vscode`](surfaces/vscode) | vs code | the tab in front of the user |
 | [`wordpress`](surfaces/wordpress) | wordpress | the site, and each post |
 
-what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). eleven are checked end to end here (real broker, real near-end, the plugin's own code); the four whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
+what was verified and what was not is in [`docs/surfaces.md`](docs/surfaces.md). eleven are checked end to end here (real broker, optional local bridge, the plugin's own code); the four whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim) are written and **not run**, in those words.
 
 whatsapp has no extension surface at all: everything third-party is server-side, so there is no whatsapp surface here, and the reason is in [`docs/research/app-catalogue.md`](docs/research/app-catalogue.md).
 
@@ -76,23 +76,23 @@ node scripts/browser-test.mjs       # sealing, in real Chromium
 scripts/e2e/run.sh                  # broker + extension in chromium + rust client, end to end
 node scripts/surfaces/run.mjs       # every surface, against a real broker
 cargo run -p conduit-broker         # ws://127.0.0.1:8787/v1/tunnel
-cargo run -p conduit-near-end       # the near end: the socket, and the sealing
+cargo run -p conduit-near-end       # optional local bridge (safari + short-lived plugins)
 node scripts/build-extension.mjs    # => target/extension/{chromium,safari}-mv3, load unpacked
 ```
 
 ## status
 
-shipped + tested: protocol, broker, client lib, the near end, both extensions, two surfaces in the browser extension, and fifteen surfaces outside it. rust and browser sealing match byte for byte on a shared test vector.
+shipped + tested: protocol, broker, client lib, optional local bridge, both extensions, two surfaces in the browser extension, and fifteen app surfaces. rust and browser sealing match byte for byte on a shared test vector.
 
 verified in chromium: [`scripts/e2e`](scripts/e2e/README.md) loads the extension, pairs it on the broker's page, and a rust client opens the sealed tab it publishes; runs in ci.
 
-verified outside a browser: eleven surfaces are checked here against a real broker and a real near end, with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
+verified outside a browser: eleven surfaces are checked here against a real broker with the plugin's own code; the ledger is in [`docs/surfaces.md`](docs/surfaces.md).
 
 not verified: safari itself, and the four surfaces whose runtime is not on this machine (apple mail, apple shortcuts, wordpress, neovim). their code is written and was never run.
 
 ## why research first
 
-chromium and safari decided most of this. chromium kills an idle service worker after 30s => the near end pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => a native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
+chromium and safari decided most of this. chromium kills an idle service worker after 30s => the extension pings every 20s and resumes by `seq`. safari unloads background pages about as fast and its websocket to `127.0.0.1` is broken => an optional native host holds the socket. sources: [`extension-surfaces.md`](docs/research/extension-surfaces.md)
 
 ## license
 

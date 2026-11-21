@@ -1,10 +1,10 @@
 sequenceDiagram
-  participant near-end
+  participant surface
   participant broker
   participant user
-  near-end->>broker: POST /v1/device/code
-  broker-->>near-end: code + url (10m)
-  near-end->>user: show code
+  surface->>broker: POST /v1/device/code
+  broker-->>surface: code + url (10m)
+  surface->>user: show code
   user->>broker: approve on page
-  near-end->>broker: POST /v1/device/secret
-  broker-->>near-end: 256-bit secret
+  surface->>broker: POST /v1/device/secret
+  broker-->>surface: 256-bit secret
